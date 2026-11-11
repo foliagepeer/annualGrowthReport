@@ -29,10 +29,15 @@ const musicToggle = document.querySelector('#musicToggle');
 const previewBadge = document.querySelector('#previewBadge');
 
 const FONT_FALLBACK = 'system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
+const LAYOUT_WIDTH = 390;
+const LAYOUT_HEIGHT = 844;
+const PLACEHOLDER_KEYS = ['name', 'department', 'joinDays', 'volunteerHours', 'activityCount', 'partner', 'message'];
+const NUMERIC_PLACEHOLDERS = new Set(['joinDays', 'volunteerHours', 'activityCount']);
 
 let swiper = null;
 let reportData = null;
 let previewMode = false;
+const layoutFontPromises = new Map();
 
 // 手机端常见的一类失败：复用中的 keep-alive 连接刚好被服务端关闭，
 // 请求发到已关闭的 socket 上会直接抛 TypeError（Failed to fetch），
@@ -121,6 +126,12 @@ function playPage(slide) {
   if (!slide) return;
   playAnimations(slide);
   playEntryRing(slide);
+  const canvas = slide.querySelector('.layout-canvas');
+  if (canvas) {
+    canvas.classList.remove('is-entering');
+    void canvas.offsetWidth;
+    canvas.classList.add('is-entering');
+  }
   slide.querySelectorAll('[data-count]').forEach((node) => {
     countUp(node, reportData ? reportData[node.dataset.count] : 0);
   });
@@ -227,6 +238,127 @@ async function loadFonts(fonts) {
   }
 }
 
+/* ---------- 自由排版 ---------- */
+
+function ensureLayoutFont(url, family) {
+  if (!url || typeof FontFace === 'undefined') return;
+  const key = `${family}|${url}`;
+  if (layoutFontPromises.has(key)) return;
+  const promise = (async () => {
+    try {
+      const face = new FontFace(family, `url("${url}")`);
+      await Promise.race([
+        face.load(),
+        new Promise((resolve, reject) => setTimeout(() => reject(new Error('字体加载超时')), 2000)),
+      ]);
+      document.fonts.add(face);
+    } catch {
+      // 静默回退
+    }
+  })();
+  layoutFontPromises.set(key, promise);
+}
+
+function layoutFontFamily(ref, theme) {
+  const fonts = (theme && theme.fonts) || {};
+  if (ref === 'display') {
+    ensureLayoutFont(fonts.display, 'ReportDisplay');
+    return fonts.display ? `"ReportDisplay", ${FONT_FALLBACK}` : FONT_FALLBACK;
+  }
+  if (ref === 'body') {
+    ensureLayoutFont(fonts.body, 'ReportBody');
+    return fonts.body ? `"ReportBody", ${FONT_FALLBACK}` : FONT_FALLBACK;
+  }
+  const url = ref && fonts.presets ? fonts.presets[ref] : null;
+  if (!url) return FONT_FALLBACK;
+  const family = `RF-${ref}`;
+  ensureLayoutFont(url, family);
+  return `"${family}", ${FONT_FALLBACK}`;
+}
+
+function substituteLayoutText(text, data) {
+  return String(text || '').replace(/\{\{\s*([A-Za-z]+)\s*\}\}/g, (_, key) => {
+    if (!PLACEHOLDER_KEYS.includes(key)) return '';
+    const value = data ? data[key] : '';
+    if (value === null || value === undefined || value === '') {
+      return NUMERIC_PLACEHOLDERS.has(key) ? '—' : '';
+    }
+    return String(value);
+  });
+}
+
+function renderLayoutElement(element, theme) {
+  if (element.type === 'image') {
+    const node = document.createElement('img');
+    node.className = 'layout-el layout-image';
+    node.src = element.src;
+    node.alt = '';
+    node.loading = 'lazy';
+    node.style.left = `${element.x}px`;
+    node.style.top = `${element.y}px`;
+    node.style.width = `${element.w}px`;
+    node.style.height = `${element.h}px`;
+    node.style.objectFit = element.fit;
+    node.style.opacity = String(element.opacity);
+    node.style.zIndex = String(element.z);
+    if (element.radius) node.style.borderRadius = `${element.radius}px`;
+    return node;
+  }
+
+  const node = document.createElement('span');
+  node.className = 'layout-el layout-text';
+  node.style.left = `${element.x}px`;
+  node.style.top = `${element.y}px`;
+  node.style.width = `${element.w}px`;
+  node.style.opacity = String(element.opacity);
+  node.style.zIndex = String(element.z);
+  node.style.color = element.color;
+  node.style.fontSize = `${element.size}px`;
+  node.style.fontWeight = String(element.weight);
+  node.style.textAlign = element.align;
+  node.style.lineHeight = String(element.lineHeight);
+  node.style.fontFamily = layoutFontFamily(element.font, theme);
+  node.textContent = substituteLayoutText(element.text, reportData);
+  if (element.unit) {
+    const unit = document.createElement('small');
+    unit.textContent = element.unit;
+    unit.style.fontSize = '0.24em';
+    unit.style.marginLeft = '0.2em';
+    unit.style.opacity = '0.72';
+    node.append(unit);
+  }
+  return node;
+}
+
+// 有排版的页面隐藏默认文字（结尾页的按钮行保留），改为渲染 390×844 设计稿
+function renderLayout(theme) {
+  const layout = (theme && theme.layout) || {};
+  document.querySelectorAll('.page[data-bg]').forEach((page) => {
+    page.querySelectorAll('.layout-canvas').forEach(node => node.remove());
+    const spec = layout[page.dataset.bg];
+    if (!spec || !Array.isArray(spec.elements) || spec.elements.length === 0) {
+      page.classList.remove('layout-active');
+      return;
+    }
+    page.classList.add('layout-active');
+    const canvas = document.createElement('div');
+    canvas.className = 'layout-canvas';
+    for (const element of spec.elements) canvas.append(renderLayoutElement(element, theme));
+    page.append(canvas);
+  });
+}
+
+// 元素按设计稿等比缩放；背景图由所在页面负责铺满
+function applyLayoutScale() {
+  const scale = Math.min(
+    reportScreen.clientWidth / LAYOUT_WIDTH,
+    reportScreen.clientHeight / LAYOUT_HEIGHT
+  ) || 1;
+  reportScreen.style.setProperty('--layout-scale', String(scale));
+}
+
+window.addEventListener('resize', applyLayoutScale);
+
 /* ---------- 背景音乐 ---------- */
 
 function musicPreference() {
@@ -324,6 +456,8 @@ function enterReport(data) {
   loadFonts(data.theme && data.theme.fonts);
   applyBackgrounds(data.backgrounds);
   setupMusic(data.music);
+  renderLayout(data.theme);
+  applyLayoutScale();
 
   // 切页光圈的元素只建一次（纯装饰，不写进 HTML）
   document.querySelectorAll('.page').forEach((page) => {
@@ -430,7 +564,7 @@ loginForm.addEventListener('submit', async (event) => {
 });
 
 logoutBtn.addEventListener('click', async () => {
-  if (previewMode) return; // 预览窗口不能销毁管理员与学员共用的会话
+  if (previewMode) return; // 预览窗口不能销毁管理员与成员共用的会话
   logoutBtn.disabled = true;
   try {
     await request('/api/logout', { method: 'POST' });
@@ -494,7 +628,7 @@ async function startPreview(params) {
 
   const studentId = params.get('student') || '';
   if (!studentId) {
-    showLogin('预览链接缺少学员学号');
+    showLogin('预览链接缺少成员学号');
     return;
   }
 

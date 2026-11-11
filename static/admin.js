@@ -15,6 +15,12 @@ const state = {
   themeEditingId: '',
   themeDraft: null,
   previewStudentId: '',
+  themeMode: 'style',
+  layoutPageKey: '01-opening',
+  layoutSelectedId: '',
+  layoutPreviewData: null,
+  layoutPreviewFor: '',
+  layoutScale: 1,
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -281,6 +287,11 @@ function selectTab(name) {
   if (name === 'theme' && state.meta && state.meta.features && state.meta.features.theme && state.themes.length === 0) {
     loadThemes().then(loadThemeFonts).catch(showError);
   }
+  if (name === 'theme' && state.themeMode === 'layout') {
+    requestAnimationFrame(() => {
+      if (isLayoutMode()) applyEditorScale();
+    });
+  }
 }
 
 for (const tab of document.querySelectorAll('.tab')) {
@@ -298,6 +309,7 @@ async function loadStudents() {
     : `共 ${data.total} 人`;
   renderStudents();
   renderPreviewStudentSelect();
+  if (isLayoutMode()) loadLayoutPreview();
 }
 
 function renderStudents() {
@@ -421,7 +433,7 @@ $('#batchExportBtn').addEventListener('click', async () => {
     const url = URL.createObjectURL(blob);
     const link = el('a');
     link.href = url;
-    link.download = `学员名单-所选${ids.length}人.xlsx`;
+    link.download = `成员名单-所选${ids.length}人.xlsx`;
     document.body.append(link);
     link.click();
     link.remove();
@@ -644,7 +656,7 @@ $('#editorForm').addEventListener('submit', async (event) => {
       if (result.changed.length === 0 && result.otherSessionsRemoved === 0) {
         toast('没有任何改动', { type: 'info' });
       } else {
-        const extra = result.otherSessionsRemoved > 0 ? `，并让该学员 ${result.otherSessionsRemoved} 个设备下线` : '';
+        const extra = result.otherSessionsRemoved > 0 ? `，并让该成员 ${result.otherSessionsRemoved} 个设备下线` : '';
         toast(`已保存：${result.changed.join('、') || '无字段变化'}${extra}`, undoToast(result.undo));
       }
     } else {
@@ -671,7 +683,7 @@ function showEditorMessage(text) {
 $('#addStudentBtn').addEventListener('click', () => openEditor(null));
 
 async function removeStudent(item) {
-  if (!await confirmDialog(`确定删除「${item.name}（${item.studentId}）」吗？该学员将无法再登录；删除后 10 秒内，可在屏幕下方的提示里点「撤销」还原。`, { title: '删除成员', confirmText: '删除', danger: true })) return;
+  if (!await confirmDialog(`确定删除「${item.name}（${item.studentId}）」吗？该成员将无法再登录；删除后 10 秒内，可在屏幕下方的提示里点「撤销」还原。`, { title: '删除成员', confirmText: '删除', danger: true })) return;
   try {
     const result = await request(`/students/${encodeURIComponent(item.studentId)}`, { method: 'DELETE' });
     await loadStudents();
@@ -734,7 +746,7 @@ $('#realPreviewBtn').addEventListener('click', () => {
 
 /* ---------- 批量媒体操作 ---------- */
 
-// 学员的专属图目录：显式指定过就用它，否则用学号
+// 成员的专属图目录：显式指定过就用它，否则用学号
 function mediaDirOf(studentId) {
   const student = state.students.find(item => item.studentId === studentId);
   return (student && student.bgDir) || studentId;
@@ -830,7 +842,7 @@ $('#mediaBatchForm').addEventListener('submit', async (event) => {
       return;
     }
 
-    // 上传同一张图到每名学员各自的专属目录
+    // 上传同一张图到每名成员各自的专属目录
     if (action === 'upload') {
       const file = $('#mediaBatchImage').files && $('#mediaBatchImage').files[0];
       if (!file) return showMediaBatchMessage('请选择要上传的图片');
@@ -840,12 +852,12 @@ $('#mediaBatchForm').addEventListener('submit', async (event) => {
       if (file.size > state.meta.limits.image) return showMediaBatchMessage(`图片不能超过 ${Math.round(state.meta.limits.image / 1024 / 1024)}MB`);
 
       const slot = $('#mediaBatchSlotKey').value;
-      if (!await confirmDialog(`将把这张图写进 ${ids.length} 位学员各自的专属目录（同名直接覆盖），继续吗？`, { title: '批量上传专属图', confirmText: '上传' })) return;
+      if (!await confirmDialog(`将把这张图写进 ${ids.length} 位成员各自的专属目录（同名直接覆盖），继续吗？`, { title: '批量上传专属图', confirmText: '上传' })) return;
 
       let done = 0;
       let failed = 0;
       for (const [index, studentId] of ids.entries()) {
-        // 必须写进该学员实际读取的目录（显式指定过图目录时就不是学号目录）
+        // 必须写进该成员实际读取的目录（显式指定过图目录时就不是学号目录）
         const dir = mediaDirOf(studentId);
         progress.textContent = `上传中 ${index + 1}/${ids.length}：${dir}`;
         try {
@@ -860,7 +872,7 @@ $('#mediaBatchForm').addEventListener('submit', async (event) => {
       return;
     }
 
-    // 删除这些学员在某槽位的专属图
+    // 删除这些成员在某槽位的专属图
     if (action === 'remove') {
       const slot = $('#mediaBatchRemoveKey').value;
       const targets = [];
@@ -870,8 +882,8 @@ $('#mediaBatchForm').addEventListener('submit', async (event) => {
         const file = entry && entry.files.find(item => item.key === slot && item.supported);
         if (file) targets.push({ dir, name: file.name });
       }
-      if (targets.length === 0) return showMediaBatchMessage('这些学员在该槽位都没有专属图，无需删除');
-      if (!await confirmDialog(`将删除 ${targets.length} 位学员在「${slot}」的专属图（媒体文件删除后无法撤销），继续吗？`, { title: '删除专属图', confirmText: '删除', danger: true })) return;
+      if (targets.length === 0) return showMediaBatchMessage('这些成员在该槽位都没有专属图，无需删除');
+      if (!await confirmDialog(`将删除 ${targets.length} 位成员在「${slot}」的专属图（媒体文件删除后无法撤销），继续吗？`, { title: '删除专属图', confirmText: '删除', danger: true })) return;
 
       let done = 0;
       let failed = 0;
@@ -939,7 +951,7 @@ function renderMedia() {
   const ownFiles = (state.media.images.dirs.find(entry => entry.dir === ownDir) || { files: [] }).files;
 
   $('#ownDirHint').textContent = student
-    ? `当前学员：${student.name}（${student.studentId}）；专属目录：images/${ownDir}/${student.bgDir ? '（Excel/编辑里显式指定）' : '（默认用学号）'}`
+    ? `当前成员：${student.name}（${student.studentId}）；专属目录：images/${ownDir}/${student.bgDir ? '（Excel/编辑里显式指定）' : '（默认用学号）'}`
     : '还没有成员';
   $('#ownDirPath').textContent = ownDir ? `images/${ownDir}/` : 'images/<学号>/';
 
@@ -1048,11 +1060,11 @@ function renderMusic(student) {
   if (student) {
     const current = tracks.find(track => track.usedBy.some(user => user.studentId === student.studentId));
     const line = el('div', 'row-main');
-    line.append(el('strong', null, `当前学员使用：${current ? current.name : '未配置音乐'}`));
+    line.append(el('strong', null, `当前成员使用：${current ? current.name : '未配置音乐'}`));
     if (!current) line.append(el('span', 'muted', '可以上传一首，或把文件名改成学号同名让它自动匹配'));
     const actions = el('div', 'row-actions');
     actions.append(button('恢复默认（找与学号同名）', 'ghost', () => assignMusic(student, null)));
-    if (current) actions.append(button('为该学员取消音乐', 'danger', () => assignMusic(student, '', true)));
+    if (current) actions.append(button('为该成员取消音乐', 'danger', () => assignMusic(student, '', true)));
     const wrap = el('div', 'row');
     wrap.append(line, actions);
     box.append(wrap);
@@ -1093,7 +1105,7 @@ async function assignMusic(student, name, disable = false) {
     });
     await loadStudents();
     await loadMedia();
-    toast(disable ? '已取消该学员的音乐' : (name ? `已把 ${name} 指定给 ${student.name}` : '已恢复默认规则'));
+    toast(disable ? '已取消该成员的音乐' : (name ? `已把 ${name} 指定给 ${student.name}` : '已恢复默认规则'));
   } catch (error) {
     if (error.status === 401) return showLogin('登录已过期，请重新登录');
     showError(error);
@@ -1122,7 +1134,7 @@ $('#uploadMusicBtn').addEventListener('click', async () => {
 
   const student = state.students.find(item => item.studentId === state.mediaStudentId);
   const suggested = student ? `${student.studentId}${ext}` : file.name;
-  const name = await promptDialog('保存为哪个文件名？（用学号命名可自动归属该学员）', suggested);
+  const name = await promptDialog('保存为哪个文件名？（用学号命名可自动归属该成员）', suggested);
   if (!name) return;
 
   try {
@@ -1184,7 +1196,7 @@ function parseMediaFile(file) {
   if (!folder && keys.includes(stem) && imageExts.includes(ext)) {
     return { kind: 'image', dir: '', name: `${stem}${ext}` };
   }
-  // 3) 学员专属图：<学号>-<槽位>.<扩展名> 或 <学号>_<槽位>.<扩展名>
+  // 3) 成员专属图：<学号>-<槽位>.<扩展名> 或 <学号>_<槽位>.<扩展名>
   const matched = stem.match(/^(.+?)[-_](.+)$/);
   if (matched && keys.includes(matched[2]) && imageExts.includes(ext)) {
     return { kind: 'image', dir: matched[1], name: `${matched[2]}${ext}`, studentId: matched[1] };
@@ -1432,6 +1444,7 @@ const DEFAULT_THEME_CONFIG = {
   fonts: { display: null, body: null },
   motion: { notes: true, ambient: true },
   pages: {},
+  layout: {},
 };
 
 const loadedPreviewFonts = new Set();
@@ -1458,9 +1471,19 @@ function themeById(id) {
 }
 
 function showThemeMessage(text) {
-  const message = $('#themeMessage');
-  message.textContent = text;
-  message.hidden = false;
+  for (const id of ['themeMessage', 'layoutMessage']) {
+    const message = $(`#${id}`);
+    if (!message) continue;
+    message.textContent = text;
+    message.hidden = false;
+  }
+}
+
+function hideThemeMessages() {
+  for (const id of ['themeMessage', 'layoutMessage']) {
+    const message = $(`#${id}`);
+    if (message) message.hidden = true;
+  }
 }
 
 async function loadThemes() {
@@ -1479,6 +1502,7 @@ async function loadThemeFonts() {
   state.themeFonts = await request('/themes/fonts');
   renderFontOptions();
   renderFontStates();
+  if (isLayoutMode()) renderLayoutEditor();
 }
 
 function renderThemeSelects() {
@@ -1553,6 +1577,8 @@ function renderThemeEditor() {
 
   const usage = theme.isDefault ? '默认主题' : `使用 ${theme.usage} 人`;
   $('#themeMeta').textContent = `${theme.name} · ${usage}${theme.invalid ? ' · 配置损坏，已按默认值读取' : ''}`;
+
+  if (state.themeMode === 'layout') renderLayoutEditor();
 }
 
 function setDraftColor(name, value) {
@@ -1837,7 +1863,7 @@ async function applyPreviewFont(stage, slot, choice) {
 
 async function saveTheme(openPreview) {
   if (!state.themeDraft || !state.themeEditingId) return;
-  $('#themeMessage').hidden = true;
+  hideThemeMessages();
   const name = $('#t_name').value.trim();
   if (!name) return showThemeMessage('请填写主题名称');
 
@@ -1864,7 +1890,7 @@ async function saveTheme(openPreview) {
 
 function openRealPreview() {
   const studentId = $('#previewStudent').value;
-  if (!studentId) return alertDialog('请先选择预览学员');
+  if (!studentId) return alertDialog('请先选择预览成员');
   if (!state.themeEditingId) return alertDialog('请先保存主题');
   window.open(
     `/index.html?preview=1&student=${encodeURIComponent(studentId)}&themeId=${encodeURIComponent(state.themeEditingId)}`,
@@ -1972,6 +1998,575 @@ $('#themeAssignForm').addEventListener('submit', async (event) => {
     if (error.status === 401) return showLogin('登录已过期，请重新登录');
     showError(error);
   }
+});
+
+/* ---------- 页面排版编辑器 ---------- */
+
+const LAYOUT_W = 390;
+const LAYOUT_H = 844;
+const LAYOUT_PLACEHOLDERS = ['name', 'department', 'joinDays', 'volunteerHours', 'activityCount', 'partner', 'message'];
+const LAYOUT_NUMERIC = new Set(['joinDays', 'volunteerHours', 'activityCount']);
+const editorFontPromises = new Map();
+
+const layoutId = () => `e-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+const clampLayout = (value, min, max) => Math.min(Math.max(value, min), max);
+const isLayoutMode = () => state.themeMode === 'layout';
+
+function layoutPageElements(key = state.layoutPageKey) {
+  const page = state.themeDraft && state.themeDraft.layout && state.themeDraft.layout[key];
+  return page && Array.isArray(page.elements) ? page.elements : [];
+}
+
+function setLayoutPageElements(key, elements) {
+  if (!state.themeDraft) return;
+  if (!state.themeDraft.layout) state.themeDraft.layout = {};
+  if (elements.length > 0) state.themeDraft.layout[key] = { elements };
+  else delete state.themeDraft.layout[key];
+}
+
+function selectedLayoutElement() {
+  return layoutPageElements().find(item => item.id === state.layoutSelectedId) || null;
+}
+
+function layoutSubstitute(text, sample) {
+  return String(text || '').replace(/\{\{\s*([A-Za-z]+)\s*\}\}/g, (_, key) => {
+    if (!LAYOUT_PLACEHOLDERS.includes(key)) return '';
+    const value = sample ? sample[key] : '';
+    if (value === null || value === undefined || value === '') return LAYOUT_NUMERIC.has(key) ? '—' : '';
+    return String(value);
+  });
+}
+
+function layoutSample() {
+  const data = state.layoutPreviewData;
+  if (!data) return {};
+  return {
+    name: data.name,
+    department: data.department,
+    joinDays: data.joinDays,
+    volunteerHours: data.volunteerHours,
+    activityCount: data.activityCount,
+    partner: data.partner,
+    message: data.message,
+  };
+}
+
+function defaultLayoutTemplate(key) {
+  const line = (id, y, text) => ({
+    id, type: 'text', x: 25, y, w: 340, text,
+    unit: '', font: 'body', size: 15, weight: 400, color: '#f4f7ff',
+    align: 'center', lineHeight: 1.4, opacity: 0.72, z: 1,
+  });
+  const name = (id, y, text) => ({ ...line(id, y, text), font: 'display', size: 42, weight: 700, lineHeight: 1.25, opacity: 1 });
+  const number = (id, y, text, unit) => ({ ...line(id, y, text), unit, font: 'display', size: 76, weight: 800, lineHeight: 1, opacity: 1 });
+
+  switch (key) {
+    case '01-opening':
+      return [
+        line('t-line', 240, '今年，我们一起走过'),
+        name('t-name', 288, '{{name}}'),
+        line('t-dept', 348, '{{department}}'),
+        { ...line('t-hint', 600, '上滑继续'), size: 13, opacity: 0.5 },
+      ];
+    case '02-days':
+      return [line('t-line', 250, '你加入我们已经'), number('t-num', 292, '{{joinDays}}', '天'), line('t-sub', 410, '每一天，都算数')];
+    case '03-hours':
+      return [line('t-line', 250, '今年你的志愿服务时长'), number('t-num', 292, '{{volunteerHours}}', '小时'), line('t-sub', 410, '把时间给了值得的人')];
+    case '04-activities':
+      return [line('t-line', 250, '这一年你参加了'), number('t-num', 292, '{{activityCount}}', '次'), line('t-sub', 410, '活动，每一次都在场')];
+    case '05-partner':
+      return [line('t-line', 250, '今年的年度伙伴是'), name('t-name', 292, '{{partner}}'), line('t-sub', 352, '并肩做事的默契，很难得')];
+    case '06-message':
+      return [line('t-line', 230, '部长想对你说'), { ...line('t-msg', 280, '{{message}}'), size: 17, lineHeight: 2, align: 'left', opacity: 1 }];
+    case '07-ending':
+      return [line('t-line', 240, '这一年，谢谢你在'), name('t-name', 288, '{{name}}'), line('t-sub', 348, '新的一年，继续一起走吧')];
+    default:
+      return [];
+  }
+}
+
+function editorFontUrl(ref) {
+  const theme = state.themeDraft;
+  if (!theme || !ref) return null;
+  const presets = (state.themeFonts && state.themeFonts.presets) || [];
+  if (ref === 'display' || ref === 'body') {
+    const choice = theme.fonts[ref];
+    if (!choice) return null;
+    if (choice === 'custom') {
+      const custom = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[ref];
+      return custom ? custom.url : null;
+    }
+    const preset = presets.find(item => item.id === choice);
+    return preset ? preset.url : null;
+  }
+  const preset = presets.find(item => item.id === ref);
+  return preset ? preset.url : null;
+}
+
+function ensureEditorFont(url, family) {
+  if (!url || typeof FontFace === 'undefined') return;
+  const key = `${family}|${url}`;
+  if (editorFontPromises.has(key)) return;
+  editorFontPromises.set(key, (async () => {
+    try {
+      const face = new FontFace(family, `url("${url}")`);
+      await Promise.race([
+        face.load(),
+        new Promise((resolve, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+      ]);
+      document.fonts.add(face);
+    } catch {
+      // 回退系统字体
+    }
+  })());
+}
+
+function adminFontFamily(ref) {
+  const url = editorFontUrl(ref);
+  if (!url) return FALLBACK_FONT;
+  const family = ref === 'display' ? 'EditorDisplay'
+    : ref === 'body' ? 'EditorBody'
+      : `EditorPreset-${ref}`;
+  ensureEditorFont(url, family);
+  return `"${family}", ${FALLBACK_FONT}`;
+}
+
+function renderLayoutPageSelect() {
+  const select = $('#layoutPage');
+  if (!select || !state.meta) return;
+  const current = state.layoutPageKey;
+  select.textContent = '';
+  for (const key of state.meta.pageKeys) select.append(new Option(pageName(key), key));
+  if (state.meta.pageKeys.includes(current)) select.value = current;
+  else {
+    state.layoutPageKey = state.meta.pageKeys[0] || '01-opening';
+    select.value = state.layoutPageKey;
+  }
+}
+
+function applyEditorScale() {
+  const wrap = $('#layoutCanvasWrap');
+  const canvas = $('#layoutCanvas');
+  if (!wrap || !canvas) return;
+  const maxHeight = Math.min(window.innerHeight * 0.72, LAYOUT_H);
+  const scale = Math.min(wrap.clientWidth / LAYOUT_W, maxHeight / LAYOUT_H) || 1;
+  state.layoutScale = scale;
+  wrap.style.height = `${Math.round(LAYOUT_H * scale)}px`;
+  canvas.style.transform = `scale(${scale})`;
+}
+
+function layoutResizeHandle(element, node) {
+  const handle = document.createElement('span');
+  handle.className = 'layout-resize-handle';
+  handle.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    startLayoutResize(event, element, node, handle);
+  });
+  return handle;
+}
+
+function layoutEditorNode(element, sample) {
+  const node = document.createElement('div');
+  node.className = `layout-editor-el layout-${element.type}`;
+  node.dataset.id = element.id;
+  node.style.left = `${element.x}px`;
+  node.style.top = `${element.y}px`;
+  node.style.width = `${element.w}px`;
+  node.style.opacity = String(element.opacity);
+  node.style.zIndex = String(element.z);
+
+  if (element.type === 'image') {
+    node.style.height = `${element.h}px`;
+    const img = document.createElement('img');
+    img.src = element.src;
+    img.alt = '';
+    img.draggable = false;
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = element.fit;
+    if (element.radius) img.style.borderRadius = `${element.radius}px`;
+    node.append(img);
+  } else {
+    node.style.color = element.color;
+    node.style.fontSize = `${element.size}px`;
+    node.style.fontWeight = String(element.weight);
+    node.style.textAlign = element.align;
+    node.style.lineHeight = String(element.lineHeight);
+    node.style.fontFamily = adminFontFamily(element.font);
+    node.textContent = layoutSubstitute(element.text, sample);
+    if (element.unit) {
+      const unit = document.createElement('small');
+      unit.textContent = element.unit;
+      unit.style.fontSize = '0.24em';
+      unit.style.marginLeft = '0.2em';
+      unit.style.opacity = '0.72';
+      node.append(unit);
+    }
+  }
+
+  node.addEventListener('pointerdown', (event) => startLayoutDrag(event, element, node));
+  if (element.id === state.layoutSelectedId) {
+    node.classList.add('is-selected');
+    node.append(layoutResizeHandle(element, node));
+  }
+  return node;
+}
+
+function startLayoutDrag(event, element, node) {
+  if (event.button !== undefined && event.button !== 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  state.layoutSelectedId = element.id;
+  for (const other of document.querySelectorAll('.layout-editor-el')) {
+    other.classList.toggle('is-selected', other === node);
+  }
+  if (!node.querySelector('.layout-resize-handle')) node.append(layoutResizeHandle(element, node));
+  renderLayoutProperties();
+
+  const rect = $('#layoutCanvas').getBoundingClientRect();
+  const scale = rect.width / LAYOUT_W || 1;
+  const startX = event.clientX;
+  const startY = event.clientY;
+  const originX = element.x;
+  const originY = element.y;
+  let moved = false;
+
+  node.setPointerCapture(event.pointerId);
+  const onMove = (moveEvent) => {
+    moved = true;
+    element.x = Math.round(clampLayout(originX + (moveEvent.clientX - startX) / scale, 0, LAYOUT_W - element.w));
+    element.y = Math.round(clampLayout(originY + (moveEvent.clientY - startY) / scale, 0, LAYOUT_H - 20));
+    node.style.left = `${element.x}px`;
+    node.style.top = `${element.y}px`;
+  };
+  const onEnd = () => {
+    node.removeEventListener('pointermove', onMove);
+    node.removeEventListener('pointerup', onEnd);
+    node.removeEventListener('pointercancel', onEnd);
+    if (moved) renderLayoutEditor();
+  };
+  node.addEventListener('pointermove', onMove);
+  node.addEventListener('pointerup', onEnd);
+  node.addEventListener('pointercancel', onEnd);
+}
+
+function startLayoutResize(event, element, node, handle) {
+  const rect = $('#layoutCanvas').getBoundingClientRect();
+  const scale = rect.width / LAYOUT_W || 1;
+  const startX = event.clientX;
+  const startY = event.clientY;
+  const originW = element.w;
+  const originH = element.h;
+  let moved = false;
+
+  handle.setPointerCapture(event.pointerId);
+  const onMove = (moveEvent) => {
+    moved = true;
+    element.w = Math.round(clampLayout(originW + (moveEvent.clientX - startX) / scale, 40, LAYOUT_W - element.x));
+    node.style.width = `${element.w}px`;
+    if (element.type === 'image') {
+      element.h = Math.round(clampLayout(originH + (moveEvent.clientY - startY) / scale, 20, LAYOUT_H - element.y));
+      node.style.height = `${element.h}px`;
+    }
+  };
+  const onEnd = () => {
+    handle.removeEventListener('pointermove', onMove);
+    handle.removeEventListener('pointerup', onEnd);
+    handle.removeEventListener('pointercancel', onEnd);
+    if (moved) renderLayoutEditor();
+  };
+  handle.addEventListener('pointermove', onMove);
+  handle.addEventListener('pointerup', onEnd);
+  handle.addEventListener('pointercancel', onEnd);
+}
+
+function renderLayoutCanvas() {
+  const canvas = $('#layoutCanvas');
+  if (!canvas || !state.themeDraft) return;
+  canvas.querySelectorAll('.layout-editor-el').forEach(node => node.remove());
+  const key = state.layoutPageKey;
+  const theme = state.themeDraft;
+  const bg = $('#layoutBg');
+  const url = state.layoutPreviewData && state.layoutPreviewData.backgrounds && state.layoutPreviewData.backgrounds[key];
+  bg.style.backgroundImage = url ? `url("${url}")` : 'linear-gradient(165deg, #0d1b3e 0%, #16255c 55%, #233a86 100%)';
+  const override = (theme.pages && theme.pages[key]) || {};
+  const scrimColor = override.scrimColor || theme.base.scrimColor;
+  const scrim = typeof override.scrim === 'number' ? override.scrim : theme.base.scrim;
+  canvas.style.setProperty('--scrim-rgb', hexToRgb(scrimColor) || '6, 10, 20');
+  canvas.style.setProperty('--scrim-alpha', String(scrim));
+  const sample = layoutSample();
+  for (const element of layoutPageElements(key)) canvas.append(layoutEditorNode(element, sample));
+  applyEditorScale();
+}
+
+function renderLayoutElementList() {
+  const box = $('#layoutElementList');
+  if (!box) return;
+  box.textContent = '';
+  const elements = layoutPageElements();
+  if (elements.length === 0) {
+    box.append(el('p', 'muted', '还没有元素'));
+    return;
+  }
+  for (const element of elements) {
+    const row = el('div', `row${element.id === state.layoutSelectedId ? ' is-selected' : ''}`);
+    const main = el('div', 'row-main');
+    const label = element.type === 'image' ? '图片' : (element.text || '（空文字）');
+    main.append(el('strong', null, String(label).slice(0, 24)));
+    main.append(el('span', 'muted', `${element.type === 'image' ? '图片' : '文字'} · x ${Math.round(element.x)} · y ${Math.round(element.y)} · 宽 ${Math.round(element.w)}`));
+    row.append(main);
+    row.addEventListener('click', () => {
+      state.layoutSelectedId = element.id;
+      renderLayoutEditor();
+    });
+    box.append(row);
+  }
+}
+
+function renderLayoutProperties() {
+  const panel = $('#layoutProps');
+  if (!panel) return;
+  const element = selectedLayoutElement();
+  if (!element) {
+    panel.hidden = true;
+    return;
+  }
+  const isImage = element.type === 'image';
+  panel.hidden = false;
+
+  for (const id of ['layoutTextRow', 'layoutUnitRow']) {
+    const row = $(`#${id}`);
+    if (row) row.hidden = isImage;
+  }
+  for (const id of ['layoutFont', 'layoutSize', 'layoutWeight', 'layoutColor', 'layoutAlign']) {
+    const input = $(`#${id}`);
+    const label = input && input.closest('label');
+    if (label) label.hidden = isImage;
+  }
+  const imageProps = $('#layoutImageProps');
+  if (imageProps) imageProps.hidden = !isImage;
+
+  if (!isImage) {
+    $('#layoutText').value = element.text || '';
+    $('#layoutUnit').value = element.unit || '';
+    const fontSelect = $('#layoutFont');
+    fontSelect.textContent = '';
+    fontSelect.append(new Option('系统默认', ''));
+    fontSelect.append(new Option('主题标题字体', 'display'));
+    fontSelect.append(new Option('主题正文字体', 'body'));
+    for (const preset of (state.themeFonts && state.themeFonts.presets) || []) {
+      fontSelect.append(new Option(preset.name, preset.id));
+    }
+    fontSelect.value = element.font || '';
+    $('#layoutSize').value = String(element.size);
+    $('#layoutWeight').value = String(element.weight);
+    $('#layoutColor').value = element.color;
+    $('#layoutColorHex').value = element.color.toUpperCase();
+    $('#layoutAlign').value = element.align;
+  } else {
+    $('#layoutImageInfo').textContent = element.src;
+    $('#layoutFit').value = element.fit;
+    $('#layoutH').value = String(element.h);
+    $('#layoutRadius').value = String(element.radius || 0);
+  }
+  $('#layoutOpacity').value = String(element.opacity);
+  $('#layoutZ').value = String(element.z);
+}
+
+function updateSelectedLayoutElement(patch) {
+  const element = selectedLayoutElement();
+  if (!element) return;
+  Object.assign(element, patch);
+  renderLayoutCanvas();
+  renderLayoutElementList();
+}
+
+function renderLayoutEditor() {
+  if (!isLayoutMode() || !state.themeDraft) return;
+  renderLayoutPageSelect();
+  if (!layoutPageElements().some(element => element.id === state.layoutSelectedId)) state.layoutSelectedId = '';
+  renderLayoutCanvas();
+  const key = state.layoutPageKey;
+  const count = layoutPageElements(key).length;
+  const source = state.layoutPreviewData ? '背景与示例数据来自预览成员' : '暂无预览成员，使用示例数据';
+  $('#layoutMeta').textContent = `${pageName(key)} · ${count ? `${count} 个元素` : '还没有排版；点「从当前样式生成」开始'}（${source}）`;
+  renderLayoutElementList();
+  renderLayoutProperties();
+  if (state.meta && state.meta.pageKeys) {
+    $('#layoutMeta').textContent += ` · 占位符：{{name}} {{department}} {{joinDays}} {{volunteerHours}} {{activityCount}} {{partner}} {{message}}`;
+  }
+}
+
+async function loadLayoutPreview(force = false) {
+  if (!isLayoutMode()) return;
+  const studentId = ($('#previewStudent') && $('#previewStudent').value) || state.previewStudentId || (state.students[0] && state.students[0].studentId);
+  if (!studentId) {
+    state.layoutPreviewData = null;
+    state.layoutPreviewFor = '';
+    renderLayoutEditor();
+    return;
+  }
+  if (!force && state.layoutPreviewFor === studentId && state.layoutPreviewData) {
+    renderLayoutEditor();
+    return;
+  }
+  try {
+    const data = await request(`/students/${encodeURIComponent(studentId)}/report`);
+    state.layoutPreviewData = data;
+    state.layoutPreviewFor = studentId;
+  } catch (error) {
+    state.layoutPreviewData = null;
+    state.layoutPreviewFor = '';
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+  renderLayoutEditor();
+}
+
+async function seedLayout() {
+  if (!state.themeDraft) return;
+  if (layoutPageElements().length > 0) {
+    if (!await confirmDialog('这一页已有排版，用默认样式覆盖吗？', { title: '生成默认排版', confirmText: '覆盖' })) return;
+  }
+  setLayoutPageElements(state.layoutPageKey, defaultLayoutTemplate(state.layoutPageKey));
+  state.layoutSelectedId = '';
+  renderLayoutEditor();
+  toast('已生成默认排版，可继续拖动调整');
+}
+
+async function resetLayout() {
+  if (!state.themeDraft) return;
+  if (layoutPageElements().length === 0) return toast('这一页本来就是默认排版', { type: 'info' });
+  if (!await confirmDialog('恢复默认排版后，这一页的自定义元素会全部删除（保存主题后生效）。', { title: '恢复默认排版', confirmText: '恢复', danger: true })) return;
+  setLayoutPageElements(state.layoutPageKey, []);
+  state.layoutSelectedId = '';
+  renderLayoutEditor();
+  toast('已恢复默认排版，记得保存主题');
+}
+
+function addLayoutText() {
+  if (!state.themeDraft) return;
+  const element = {
+    id: layoutId(), type: 'text', x: 95, y: 380, w: 200,
+    text: '新文字', unit: '', font: 'body', size: 20, weight: 400,
+    color: '#f4f7ff', align: 'center', lineHeight: 1.4, opacity: 1, z: 1,
+  };
+  const elements = layoutPageElements();
+  elements.push(element);
+  setLayoutPageElements(state.layoutPageKey, elements);
+  state.layoutSelectedId = element.id;
+  renderLayoutEditor();
+}
+
+async function addLayoutImage(file) {
+  if (!file) return;
+  const extensions = (state.meta && state.meta.extensions && state.meta.extensions.image) || ['.jpg', '.jpeg', '.png', '.webp'];
+  const ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+  if (!extensions.includes(ext)) return alertDialog(`只支持 ${extensions.join(' / ')} 格式`);
+  const limit = (state.meta && state.meta.limits && state.meta.limits.image) || 5 * 1024 * 1024;
+  if (file.size > limit) return alertDialog(`图片不能超过 ${Math.round(limit / 1024 / 1024)}MB`);
+  const name = `decor-${Date.now()}-${Math.random().toString(36).slice(2, 6)}${ext}`;
+  try {
+    const result = await upload({ kind: 'decor', dir: '', name, file });
+    const src = (result.file && result.file.url ? result.file.url : `/images/decor/${name}`).split('?')[0];
+    const element = {
+      id: layoutId(), type: 'image', x: 135, y: 360, w: 120, h: 120,
+      src, fit: 'contain', radius: 0, opacity: 1, z: 1,
+    };
+    const elements = layoutPageElements();
+    elements.push(element);
+    setLayoutPageElements(state.layoutPageKey, elements);
+    state.layoutSelectedId = element.id;
+    renderLayoutEditor();
+    toast('图片已添加，可拖动调整位置');
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+}
+
+function selectThemeMode(mode) {
+  state.themeMode = mode;
+  $('#themeStylePanel').hidden = mode !== 'style';
+  $('#themeLayoutPanel').hidden = mode !== 'layout';
+  $('#themeModeStyle').classList.toggle('is-active', mode === 'style');
+  $('#themeModeLayout').classList.toggle('is-active', mode === 'layout');
+  if (mode === 'layout') {
+    renderLayoutPageSelect();
+    loadLayoutPreview();
+  }
+}
+
+$('#themeModeStyle').addEventListener('click', () => selectThemeMode('style'));
+$('#themeModeLayout').addEventListener('click', () => selectThemeMode('layout'));
+
+$('#layoutPage').addEventListener('change', (event) => {
+  state.layoutPageKey = event.target.value;
+  state.layoutSelectedId = '';
+  renderLayoutEditor();
+});
+$('#layoutSeedBtn').addEventListener('click', seedLayout);
+$('#layoutResetBtn').addEventListener('click', resetLayout);
+$('#layoutAddText').addEventListener('click', addLayoutText);
+$('#layoutAddImage').addEventListener('change', (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = '';
+  addLayoutImage(file);
+});
+$('#layoutDelete').addEventListener('click', () => {
+  const element = selectedLayoutElement();
+  if (!element) return;
+  setLayoutPageElements(state.layoutPageKey, layoutPageElements().filter(item => item.id !== element.id));
+  state.layoutSelectedId = '';
+  renderLayoutEditor();
+});
+$('#layoutDuplicate').addEventListener('click', () => {
+  const element = selectedLayoutElement();
+  if (!element) return;
+  const copy = { ...element, id: layoutId(), x: element.x + 12, y: element.y + 12 };
+  const elements = layoutPageElements();
+  elements.push(copy);
+  setLayoutPageElements(state.layoutPageKey, elements);
+  state.layoutSelectedId = copy.id;
+  renderLayoutEditor();
+});
+$('#layoutSaveTheme').addEventListener('click', () => saveTheme(false));
+$('#layoutPreviewTheme').addEventListener('click', () => saveTheme(true));
+
+$('#layoutText').addEventListener('input', (event) => updateSelectedLayoutElement({ text: event.target.value }));
+$('#layoutUnit').addEventListener('input', (event) => updateSelectedLayoutElement({ unit: event.target.value }));
+$('#layoutFont').addEventListener('change', (event) => updateSelectedLayoutElement({ font: event.target.value || null }));
+$('#layoutSize').addEventListener('input', (event) => updateSelectedLayoutElement({ size: Math.round(clampLayout(Number(event.target.value) || 16, 8, 160)) }));
+$('#layoutWeight').addEventListener('change', (event) => updateSelectedLayoutElement({ weight: Number(event.target.value) }));
+$('#layoutColor').addEventListener('input', (event) => {
+  $('#layoutColorHex').value = event.target.value.toUpperCase();
+  updateSelectedLayoutElement({ color: event.target.value });
+});
+$('#layoutColorHex').addEventListener('input', (event) => {
+  const value = event.target.value.trim();
+  if (!/^#[0-9a-fA-F]{6}$/.test(value)) return;
+  $('#layoutColor').value = value;
+  updateSelectedLayoutElement({ color: value.toLowerCase() });
+});
+$('#layoutAlign').addEventListener('change', (event) => updateSelectedLayoutElement({ align: event.target.value }));
+$('#layoutOpacity').addEventListener('input', (event) => updateSelectedLayoutElement({ opacity: Number(event.target.value) }));
+$('#layoutZ').addEventListener('input', (event) => updateSelectedLayoutElement({ z: Math.round(clampLayout(Number(event.target.value) || 0, 0, 20)) }));
+$('#layoutFit').addEventListener('change', (event) => updateSelectedLayoutElement({ fit: event.target.value }));
+$('#layoutH').addEventListener('input', (event) => {
+  const element = selectedLayoutElement();
+  const max = LAYOUT_H - (element ? element.y : 0);
+  updateSelectedLayoutElement({ h: Math.round(clampLayout(Number(event.target.value) || 120, 10, max)) });
+});
+$('#layoutRadius').addEventListener('input', (event) => updateSelectedLayoutElement({ radius: Math.round(clampLayout(Number(event.target.value) || 0, 0, 100)) }));
+
+$('#previewStudent').addEventListener('change', () => {
+  state.previewStudentId = $('#previewStudent').value;
+  if (isLayoutMode()) loadLayoutPreview(true);
+});
+
+window.addEventListener('resize', () => {
+  if (isLayoutMode()) applyEditorScale();
 });
 
 /* ---------- 启动 ---------- */

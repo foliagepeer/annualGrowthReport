@@ -65,20 +65,20 @@
     <!-- 媒体 -->
     <section id="tab-media" class="tab-panel" hidden>
       <div class="toolbar">
-        <label class="field-label" for="mediaStudent">选择学员</label>
+        <label class="field-label" for="mediaStudent">选择成员</label>
         <select id="mediaStudent" class="field select-narrow"></select>
       </div>
       <p id="ownDirHint" class="muted"></p>
 
-      <h2>该学员的专属背景图</h2>
+      <h2>该成员的专属背景图</h2>
       <p class="muted">放在 <code id="ownDirPath"></code> 下，会覆盖同名的共享图；某个槽位没配就用共享图或页面自带渐变。</p>
       <div id="ownSlots" class="slots"></div>
 
-      <h2>共享背景图（所有学员的默认图）</h2>
+      <h2>共享背景图（所有成员的默认图）</h2>
       <div id="sharedSlots" class="slots"></div>
 
       <h2>背景音乐</h2>
-      <p class="muted">文件名与学号同名时该学员自动使用；也可以在下面为选中学员单独指定，或共用同一首。</p>
+      <p class="muted">文件名与学号同名时该成员自动使用；也可以在下面为选中成员单独指定，或共用同一首。</p>
       <div class="toolbar">
         <label class="ghost file-picker">选择音频文件
           <input id="musicFile" type="file" accept="audio/*" hidden>
@@ -91,9 +91,9 @@
       <h2>批量上传（按文件名自动归属）</h2>
       <p class="muted">
         一次选多个文件或整个文件夹，系统按文件名判断归属：<br>
-        · <code>01-opening.jpg</code> → 所有学员的共享图<br>
-        · <code>2021001-01-opening.jpg</code> 或文件夹里的 <code>2021001/01-opening.jpg</code> → 该学员的专属图（覆盖共享图）<br>
-        · <code>2021001.mp3</code> → 该学员的背景音乐（与学号同名，自动生效）<br>
+        · <code>01-opening.jpg</code> → 所有成员的共享图<br>
+        · <code>2021001-01-opening.jpg</code> 或文件夹里的 <code>2021001/01-opening.jpg</code> → 该成员的专属图（覆盖共享图）<br>
+        · <code>2021001.mp3</code> → 该成员的背景音乐（与学号同名，自动生效）<br>
         槽位名：<span id="batchKeys"></span>
       </p>
       <div class="toolbar">
@@ -116,7 +116,7 @@
     <!-- 导入导出 -->
     <section id="tab-io" class="tab-panel" hidden>
       <h2>批量添加 / 更新（粘贴文本）</h2>
-      <p class="muted">每行一名学员，字段顺序：<code id="headerHint"></code>。逗号或 Tab 分隔，字段内含逗号请用双引号包起来；空行与 <code>#</code> 开头的行会忽略。一行就是单条，多行就是多条。</p>
+      <p class="muted">每行一名成员，字段顺序：<code id="headerHint"></code>。逗号或 Tab 分隔，字段内含逗号请用双引号包起来；空行与 <code>#</code> 开头的行会忽略。一行就是单条，多行就是多条。</p>
       <textarea id="importText" class="field" rows="6" placeholder="2021004,init123456,王五,外联部,2024-09-01,60,8,赵六,继续加油,,"></textarea>
       <div class="toolbar">
         <button id="previewTextBtn" class="primary" type="button">预览</button>
@@ -137,7 +137,7 @@
       <h2>导出</h2>
       <p><a class="ghost" href="/api/admin/export/xlsx">下载全部成员 Excel</a></p>
       <p class="muted">只想导出部分成员？到「成员」页勾选后在批量操作条上点「导出所选」。</p>
-      <p class="muted">密码列必然为空：库里只存哈希，导不出来。重新导入时，老学员的密码会被保留（密码列空白），新学员用「学号后六位」作初始密码。</p>
+      <p class="muted">密码列必然为空：库里只存哈希，导不出来。重新导入时，老成员的密码会被保留（密码列空白），新成员用「学号后六位」作初始密码。</p>
 
       <h2>预览结果</h2>
       <div id="previewBox" class="list"></div>
@@ -154,8 +154,14 @@
         <button id="themeDeleteBtn" class="danger" type="button">删除</button>
       </div>
       <p id="themeMeta" class="muted"></p>
-      <p class="muted">下面改的是颜色、字体和动效；点「保存主题」后，所有使用这个主题的学员都会看到。</p>
+      <p class="muted">「基础样式」改颜色、字体和动效；「页面排版」自由摆放文字和图片。点「保存主题」后，所有使用这个主题的成员都会看到。</p>
 
+      <div class="toolbar">
+        <button id="themeModeStyle" class="ghost mode-btn is-active" type="button">基础样式</button>
+        <button id="themeModeLayout" class="ghost mode-btn" type="button">页面排版</button>
+      </div>
+
+      <div id="themeStylePanel">
       <div class="theme-layout">
         <form id="themeForm" class="card editor" novalidate>
           <label>主题名称<input id="t_name" class="field" type="text" maxlength="32"></label>
@@ -239,17 +245,90 @@
             <p class="number"><span>365</span><small>天</small></p>
             <p class="sub">每一天，都算数</p>
           </div>
-          <p class="muted">这里实时显示修改效果，点「保存主题」后才会影响学员。切换主题会丢弃未保存的修改。</p>
+          <p class="muted">这里实时显示修改效果，点「保存主题」后才会影响成员。切换主题会丢弃未保存的修改。</p>
+        </div>
+      </div>
+      </div>
+
+      <div id="themeLayoutPanel" hidden>
+        <div class="toolbar">
+          <label class="field-label" for="layoutPage">页面</label>
+          <select id="layoutPage" class="field select-narrow"></select>
+          <button id="layoutSeedBtn" class="ghost" type="button">从当前样式生成</button>
+          <button id="layoutResetBtn" class="danger" type="button">恢复默认排版</button>
+        </div>
+        <p id="layoutMeta" class="muted"></p>
+        <div class="layout-editor">
+          <div id="layoutCanvasWrap" class="layout-canvas-wrap">
+            <div id="layoutCanvas" class="layout-canvas editor-canvas">
+              <div id="layoutBg" class="layout-editor-bg"></div>
+            </div>
+          </div>
+          <div class="card layout-props">
+            <h3>元素</h3>
+            <div class="toolbar">
+              <button id="layoutAddText" class="primary" type="button">添加文字</button>
+              <label class="ghost file-picker">添加图片<input id="layoutAddImage" type="file" accept="image/*" hidden></label>
+            </div>
+            <div id="layoutElementList" class="list"></div>
+            <div id="layoutProps" hidden>
+              <label id="layoutTextRow">文字内容<textarea id="layoutText" class="field" rows="3"></textarea></label>
+              <div class="grid">
+                <label id="layoutUnitRow">单位<input id="layoutUnit" class="field" maxlength="8" placeholder="如：天"></label>
+                <label>字体<select id="layoutFont" class="field"></select></label>
+                <label>字号<input id="layoutSize" class="field" type="number" min="8" max="160"></label>
+                <label>字重<select id="layoutWeight" class="field">
+                  <option value="400">常规</option>
+                  <option value="500">中等</option>
+                  <option value="600">半粗</option>
+                  <option value="700">粗</option>
+                  <option value="800">特粗</option>
+                </select></label>
+                <label>颜色 <span class="color-row">
+                  <input id="layoutColor" class="color-input" type="color">
+                  <input id="layoutColorHex" class="field" type="text" maxlength="7">
+                </span></label>
+                <label>对齐<select id="layoutAlign" class="field">
+                  <option value="left">左对齐</option>
+                  <option value="center">居中</option>
+                  <option value="right">右对齐</option>
+                </select></label>
+                <label>不透明度<input id="layoutOpacity" class="range" type="range" min="0.1" max="1" step="0.05"></label>
+                <label>层级<input id="layoutZ" class="field" type="number" min="0" max="20"></label>
+              </div>
+              <div id="layoutImageProps" hidden>
+                <p id="layoutImageInfo" class="muted"></p>
+                <div class="grid">
+                  <label>填充方式<select id="layoutFit" class="field">
+                    <option value="contain">完整显示</option>
+                    <option value="cover">裁剪铺满</option>
+                  </select></label>
+                  <label>高度<input id="layoutH" class="field" type="number" min="10" max="844"></label>
+                  <label>圆角<input id="layoutRadius" class="field" type="number" min="0" max="100"></label>
+                </div>
+              </div>
+              <div class="toolbar">
+                <button id="layoutDuplicate" class="ghost" type="button">复制元素</button>
+                <button id="layoutDelete" class="danger" type="button">删除元素</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="muted">拖动元素移动位置，右下角手柄调整宽度（图片可调宽高）；背景与示例文字取自下方「预览成员」。保存后对所有使用该主题的成员生效。</p>
+        <p id="layoutMessage" class="msg error" hidden></p>
+        <div class="toolbar">
+          <button id="layoutSaveTheme" class="primary" type="button">保存主题</button>
+          <button id="layoutPreviewTheme" class="ghost" type="button">保存并预览</button>
         </div>
       </div>
 
       <h3>真实报告预览</h3>
       <div class="toolbar">
-        <label class="field-label" for="previewStudent">预览学员</label>
+        <label class="field-label" for="previewStudent">预览成员</label>
         <select id="previewStudent" class="field select-narrow"></select>
         <button id="openRealPreviewBtn" class="primary" type="button">保存并打开真实报告</button>
       </div>
-      <p class="muted">会打开新窗口，用当前主题渲染所选学员的数据；需要当前浏览器已登录管理面板。</p>
+      <p class="muted">会打开新窗口，用当前主题渲染所选成员的数据；需要当前浏览器已登录管理面板。</p>
     </section>
   </main>
 </div>
@@ -357,14 +436,14 @@
       <label>图片文件
         <input id="mediaBatchImage" class="field" type="file" accept="image/*">
       </label>
-      <p class="muted">同一张图会写进每名学员各自的目录（images/学号/槽位名），同名直接覆盖。</p>
+      <p class="muted">同一张图会写进每名成员各自的目录（images/学号/槽位名），同名直接覆盖。</p>
     </div>
 
     <div id="mediaBatchRemoveRow" hidden>
       <label>槽位
         <select id="mediaBatchRemoveKey" class="field"></select>
       </label>
-      <p class="muted">删除这些学员在该槽位的专属图，删掉后他们回落到共享图或页面自带渐变；没有专属图的学员会被跳过。</p>
+      <p class="muted">删除这些成员在该槽位的专属图，删掉后他们回落到共享图或页面自带渐变；没有专属图的成员会被跳过。</p>
     </div>
 
     <p id="mediaBatchMessage" class="msg error" hidden></p>

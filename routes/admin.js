@@ -8,11 +8,11 @@ const themes = require('../lib/themes');
 const { AttemptLimiter } = require('../rate-limit');
 const { UndoBuffer } = require('../lib/undo-buffer');
 
-const ADMIN_SESSION_MS = 12 * 60 * 60 * 1000; // 管理员会话 12 小时，比学员的 7 天短
+const ADMIN_SESSION_MS = 12 * 60 * 60 * 1000; // 管理员会话 12 小时，比成员的 7 天短
 const JSON_LIMIT = '2mb'; // 全局 express.json() 默认只有 100kb，几百人的批量文本会被 413
 const UPLOAD_LIMIT = '10mb';
-const KIND_LIMITS = { image: 5 * 1024 * 1024, music: 8 * 1024 * 1024, font: 8 * 1024 * 1024 };
-const KIND_LABELS = { image: '图片', music: '音乐', font: '字体' };
+const KIND_LIMITS = { image: 5 * 1024 * 1024, music: 8 * 1024 * 1024, font: 8 * 1024 * 1024, decor: 5 * 1024 * 1024 };
+const KIND_LABELS = { image: '图片', music: '音乐', font: '字体', decor: '图片' };
 const FONT_SLOTS = ['display', 'body'];
 const LIST_LIMIT_MAX = 200;
 const PREVIEW_ITEMS_MAX = 300;
@@ -75,7 +75,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
   const restoreStudent = db.prepare(records.UPSERT_SQL);
   const snapshotStudents = ids => ids.map(id => findStudent.get(id)).filter(Boolean);
 
-  /* ---------- 管理员登录限流（独立实例，避免和学员互相连坐） ---------- */
+  /* ---------- 管理员登录限流（独立实例，避免和成员互相连坐） ---------- */
   const adminUserLimiter = new AttemptLimiter({ maxFailures: 5, windowMs: 15 * 60 * 1000, lockMs: 15 * 60 * 1000 });
   const adminIpLimiter = new AttemptLimiter({ maxFailures: 10, windowMs: 15 * 60 * 1000, lockMs: 15 * 60 * 1000 });
 
@@ -140,7 +140,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
   });
 
   router.post('/logout', (req, res) => {
-    // 只销毁管理会话；学员会话是另一套 cookie，不受影响
+    // 只销毁管理会话；成员会话是另一套 cookie，不受影响
     req.session.destroy(() => {
       res.clearCookie(cookieName);
       res.json({ success: true });
@@ -335,7 +335,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
       const changed = [...item.changedFields];
       if (item.passwordAction === 'set' || item.passwordAction === 'default') {
         changed.push('密码');
-        // 管理员改密码后，把这个学员在其他设备上的会话全部下线
+        // 管理员改密码后，把这个成员在其他设备上的会话全部下线
         otherSessionsRemoved = deleteOtherStudentSessions.run(req.sessionID, studentId).changes;
       }
       res.json({ success: true, changed, otherSessionsRemoved, undo: undos.remember('编辑成员', before) });
@@ -464,7 +464,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     res.json({ success: true, deleted, sessionsRemoved, skipped, undo: undos.remember('批量删除', before) });
   });
 
-  // 预览某个学员看到的报告（含解析后的背景图、音乐与主题），用于排查资源是否配对
+  // 预览某个成员看到的报告（含解析后的背景图、音乐与主题），用于排查资源是否配对
   router.get('/students/:studentId/report', requireAdmin, (req, res) => {
     const row = findStudent.get(req.params.studentId);
     if (!row) return res.status(404).json({ error: '成员不存在' });
@@ -589,7 +589,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
   }
 
   router.get('/export/xlsx', requireAdmin, (req, res) => {
-    sendWorkbook(res, records.exportBuffer(listStudents.all(LIST_LIMIT_MAX * 100, 0)), '学员名单.xlsx');
+    sendWorkbook(res, records.exportBuffer(listStudents.all(LIST_LIMIT_MAX * 100, 0)), '成员名单.xlsx');
   });
 
   // 只导出勾选的成员：ID 列表可能上百个，放不进 URL，所以用 POST
@@ -601,7 +601,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     const rows = ids.map(id => findStudent.get(id)).filter(Boolean).sort((a, b) => a.student_id.localeCompare(b.student_id));
     if (rows.length === 0) return res.status(404).json({ error: '勾选的成员都不存在' });
 
-    res.attachment('学员名单.xlsx');
+    res.attachment('成员名单.xlsx');
     res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.set('X-Exported-Count', String(rows.length));
     res.send(records.exportBuffer(rows));
@@ -635,7 +635,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     const dirs = [];
     try {
       for (const entry of fs.readdirSync(imageRoot, { withFileTypes: true })) {
-        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+        if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'decor') continue;
         dirs.push({ dir: entry.name, files: media.listEntries('image', entry.name), usedBy: dirUsage[entry.name] || [] });
       }
     } catch {
@@ -665,7 +665,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
   router.post('/media/upload', requireAdmin, rawBody, (req, res, next) => {
     try {
       const kind = String(req.query.kind || '');
-      if (!['image', 'music', 'font'].includes(kind)) return res.status(400).json({ error: '资源类型只能是 image、music 或 font' });
+      if (!['image', 'music', 'font', 'decor'].includes(kind)) return res.status(400).json({ error: '资源类型只能是 image、music、font 或 decor' });
       if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ error: '没有收到文件内容' });
       if (req.body.length > KIND_LIMITS[kind]) {
         const mb = Math.round(KIND_LIMITS[kind] / 1024 / 1024);
@@ -674,7 +674,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
 
       const dir = String(req.query.dir || '').trim();
       if (kind !== 'image' && dir) {
-        return res.status(400).json({ error: kind === 'music' ? '背景音乐不支持子目录' : '字体不支持子目录' });
+        return res.status(400).json({ error: kind === 'music' ? '背景音乐不支持子目录' : kind === 'font' ? '字体不支持子目录' : '装饰图不支持子目录' });
       }
 
       const wanted = String(req.query.name || '').trim() || decodeHeaderName(req);
@@ -727,12 +727,12 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
 
   router.delete('/media', requireAdmin, (req, res) => {
     const kind = String(req.query.kind || '');
-    if (!['image', 'music', 'font'].includes(kind)) return res.status(400).json({ error: '资源类型只能是 image、music 或 font' });
+    if (!['image', 'music', 'font', 'decor'].includes(kind)) return res.status(400).json({ error: '资源类型只能是 image、music、font 或 decor' });
 
     const dir = String(req.query.dir || '').trim();
     const name = String(req.query.name || '').trim();
     if (kind !== 'image' && dir) {
-      return res.status(400).json({ error: kind === 'music' ? '背景音乐不支持子目录' : '字体不支持子目录' });
+      return res.status(400).json({ error: kind === 'music' ? '背景音乐不支持子目录' : kind === 'font' ? '字体不支持子目录' : '装饰图不支持子目录' });
     }
     if (!media.isSafeSegment(name)) return res.status(400).json({ error: '文件名不合法（不能包含斜杠、.. 等字符）' });
     if (kind === 'font' && !FONT_SLOTS.includes(path.parse(name).name)) {

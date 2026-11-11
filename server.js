@@ -31,7 +31,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// API 响应一律不缓存：里面是学员个人信息，别留在浏览器磁盘缓存里
+// API 响应一律不缓存：里面是成员个人信息，别留在浏览器磁盘缓存里
 app.use('/api', (req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();
@@ -40,7 +40,7 @@ app.use('/api', (req, res, next) => {
 const sessionStore = new SQLiteSessionStore(db);
 const sessionBase = { secret: SESSION_SECRET, store: sessionStore, resave: false, saveUninitialized: false };
 
-// 管理员与学员用两套独立会话（独立 cookie）：登录/退出互不影响
+// 管理员与成员用两套独立会话（独立 cookie）：登录/退出互不影响
 const adminSession = session({
   ...sessionBase,
   name: ADMIN_COOKIE_NAME,
@@ -56,7 +56,7 @@ const studentSession = session({
 // 否则几百人的批量文本会先被全局默认的 100kb 上限拦成 413
 app.use('/api/admin', adminSession, createAdminRouter({ db, cookieName: ADMIN_COOKIE_NAME }));
 
-// 学员端会话（管理路由之后挂载）
+// 成员端会话（管理路由之后挂载）
 app.use(studentSession);
 
 app.use(express.json());
@@ -112,7 +112,7 @@ const deleteOtherSessions = db.prepare(`
   WHERE sid != ? AND json_extract(sess, '$.studentId') = ?
 `);
 
-/* ---------- 学员专属的背景图与背景音乐：解析逻辑在 lib/media.js ---------- */
+/* ---------- 成员专属的背景图与背景音乐：解析逻辑在 lib/media.js ---------- */
 
 app.get('/api/health', (req, res) => {
   res.json({

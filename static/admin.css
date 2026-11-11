@@ -543,3 +543,98 @@ audio { width: 100%; margin-top: 4px; }
   .theme-layout { grid-template-columns: 1fr; }
   .preview-card { position: static; }
 }
+
+/* ---------- 页面排版编辑器 ---------- */
+
+.mode-btn.is-active {
+  border-color: var(--accent);
+  background: var(--surface-strong);
+  color: var(--text);
+}
+
+.layout-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 16px;
+  align-items: start;
+}
+
+.layout-canvas-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  overflow: hidden;
+  min-height: 320px;
+  padding: 8px 0;
+}
+
+.editor-canvas {
+  position: relative;
+  flex: 0 0 auto;
+  width: 390px;
+  height: 844px;
+  transform-origin: top center;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #0b1020;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  touch-action: none;
+}
+
+.layout-editor-bg {
+  position: absolute;
+  inset: 0;
+  background-color: #1a1435;
+  background-position: center;
+  background-size: cover;
+}
+
+.layout-editor-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(var(--scrim-rgb, 6, 10, 20), var(--scrim-alpha, 0.45));
+}
+
+.layout-editor-el {
+  position: absolute;
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+
+.layout-editor-el.is-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.layout-editor-el.layout-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.layout-resize-handle {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #0b1020;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.layout-props { position: sticky; top: 12px; }
+.layout-props h3 { margin: 4px 0 0; }
+.layout-props .row.is-selected {
+  border-color: var(--accent);
+  background: var(--surface-strong);
+}
+
+@media (max-width: 900px) {
+  .layout-editor { grid-template-columns: 1fr; }
+  .layout-props { position: static; }
+}

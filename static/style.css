@@ -317,7 +317,7 @@ body {
   background: rgba(255, 255, 255, 0.16);
 }
 
-/* 背景音乐开关：只在配置了音乐的学员页面上出现 */
+/* 背景音乐开关：只在配置了音乐的成员页面上出现 */
 .music-toggle {
   position: absolute;
   top: calc(16px + env(safe-area-inset-top));
@@ -364,6 +364,62 @@ body {
 @keyframes music-pulse {
   0%, 100% { opacity: 0.75; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.12); }
+}
+
+/* ---------- 自由排版（主题里有 layout 时） ---------- */
+
+.page.layout-active .page-inner {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(40px + env(safe-area-inset-bottom));
+  top: auto;
+  z-index: 3;
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
+
+/* 只保留结尾页的修改密码/退出按钮，其余默认文字交给排版层 */
+.page.layout-active .page-inner > :not(.btn-row) { display: none; }
+.page.layout-active .btn-row { margin: 0; }
+
+.layout-canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  width: 390px;
+  height: 844px;
+  transform: translate(-50%, -50%) scale(var(--layout-scale, 1));
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.layout-el { position: absolute; margin: 0; }
+
+.layout-text {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.layout-image { display: block; }
+
+.layout-canvas.is-entering {
+  animation: layout-in 0.8s ease-out both;
+}
+
+@keyframes layout-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 14px)) scale(var(--layout-scale, 1));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(var(--layout-scale, 1));
+  }
 }
 
 /* ---------- 环境光效（光点 / 切页光圈） ---------- */
@@ -485,6 +541,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .decor-layer { display: none; }
   .entry-ring { display: none; }
+  .layout-canvas.is-entering { animation: none; }
   .swipe-hint,
   .music-toggle.is-playing svg { animation: none; }
 }
