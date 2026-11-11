@@ -468,7 +468,7 @@ audio { width: 100%; margin-top: 4px; }
 
 .preview-stage > * { position: relative; z-index: 1; }
 
-/* 主色在报告里作用于音符/唱片；预览里用这一行体现，避免「改主色没反应」 */
+/* 主色在报告里作用于音符/光点；预览里用这一行体现，避免「改主色没反应」 */
 .preview-stage .preview-kicker {
   margin: 0 0 10px;
   font-size: 10px;

@@ -154,32 +154,33 @@
         <button id="themeDeleteBtn" class="danger" type="button">删除</button>
       </div>
       <p id="themeMeta" class="muted"></p>
+      <p class="muted">下面改的是颜色、字体和动效；点「保存主题」后，所有使用这个主题的学员都会看到。</p>
 
       <div class="theme-layout">
         <form id="themeForm" class="card editor" novalidate>
           <label>主题名称<input id="t_name" class="field" type="text" maxlength="32"></label>
 
-          <h3>颜色与暗层</h3>
+          <h3>颜色</h3>
           <div class="grid">
-            <label>主色（音符、唱片点缀）
+            <label>装饰颜色（音符、光点）
               <span class="color-row">
                 <input id="t_accent" class="color-input" type="color">
                 <input id="t_accentHex" class="field" type="text" maxlength="7">
               </span>
             </label>
-            <label>强调色（大数字渐变）
+            <label>大数字颜色（渐变终点）
               <span class="color-row">
                 <input id="t_accent2" class="color-input" type="color">
                 <input id="t_accent2Hex" class="field" type="text" maxlength="7">
               </span>
             </label>
-            <label>暗层颜色（背景图压暗）
+            <label>背景图压暗颜色
               <span class="color-row">
                 <input id="t_scrimColor" class="color-input" type="color">
                 <input id="t_scrimColorHex" class="field" type="text" maxlength="7">
               </span>
             </label>
-            <label>暗层强度 <span id="t_scrimValue" class="muted"></span>
+            <label>压暗程度 <span id="t_scrimValue" class="muted"></span>
               <input id="t_scrim" class="range" type="range" min="0" max="0.9" step="0.05">
             </label>
           </div>
@@ -187,21 +188,21 @@
           <h3>动效</h3>
           <div class="toolbar">
             <label class="check-all"><input id="t_notes" type="checkbox"> 上浮音符</label>
-            <label class="check-all"><input id="t_record" type="checkbox"> 旋转唱片（跟随音乐播放状态）</label>
+            <label class="check-all"><input id="t_ambient" type="checkbox"> 环境光效（光晕 / 光点 / 切页光圈）</label>
           </div>
 
-          <h3>按页覆盖</h3>
-          <p class="muted">只覆盖选中的页面；留空即继承全局值。</p>
+          <h3>单独调整某一页</h3>
+          <p class="muted">只改选中的这一页；留空的项目继续用上面的全局设置。</p>
           <div class="toolbar">
             <select id="t_page" class="field select-narrow"></select>
-            <button id="t_pageSave" class="ghost" type="button">保存此页覆盖</button>
-            <button id="t_pageClear" class="ghost" type="button">清除此页</button>
+            <button id="t_pageSave" class="ghost" type="button">保存这一页</button>
+            <button id="t_pageClear" class="ghost" type="button">恢复全局设置</button>
           </div>
           <div class="grid">
-            <label>主色 <input id="t_pageAccent" class="field" type="text" maxlength="7" placeholder="继承"></label>
-            <label>强调色 <input id="t_pageAccent2" class="field" type="text" maxlength="7" placeholder="继承"></label>
-            <label>暗层颜色 <input id="t_pageScrimColor" class="field" type="text" maxlength="7" placeholder="继承"></label>
-            <label>暗层强度 <input id="t_pageScrim" class="field" type="number" min="0" max="0.9" step="0.05" placeholder="继承"></label>
+            <label>装饰颜色 <input id="t_pageAccent" class="field" type="text" maxlength="7" placeholder="不修改"></label>
+            <label>大数字颜色 <input id="t_pageAccent2" class="field" type="text" maxlength="7" placeholder="不修改"></label>
+            <label>压暗颜色 <input id="t_pageScrimColor" class="field" type="text" maxlength="7" placeholder="不修改"></label>
+            <label>压暗程度 <input id="t_pageScrim" class="field" type="number" min="0" max="0.9" step="0.05" placeholder="不修改"></label>
           </div>
           <div id="t_pageList" class="list"></div>
 
@@ -230,7 +231,7 @@
         </form>
 
         <div class="card preview-card">
-          <h3>草稿预览</h3>
+          <h3>效果预览</h3>
           <div id="themePreview" class="preview-stage">
             <p class="preview-kicker">ANNUAL REPORT</p>
             <p class="line">今年，我们一起走过</p>
@@ -238,7 +239,7 @@
             <p class="number"><span>365</span><small>天</small></p>
             <p class="sub">每一天，都算数</p>
           </div>
-          <p class="muted">这里用当前草稿实时预览，保存后才会影响学员。切换主题会丢弃未保存的修改。</p>
+          <p class="muted">这里实时显示修改效果，点「保存主题」后才会影响学员。切换主题会丢弃未保存的修改。</p>
         </div>
       </div>
 

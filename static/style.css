@@ -4,6 +4,8 @@
   --text-faint: rgba(244, 247, 255, 0.5);
   --accent: #7dd3fc;
   --accent-2: #bcd6ff;
+  --accent-rgb: 125, 211, 252;
+  --accent-2-rgb: 188, 214, 255;
   --radius: 14px;
   /* 主题会覆盖这几个变量；默认值与后端 DEFAULT_THEME 保持一致 */
   --font-display: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
@@ -364,7 +366,64 @@ body {
   50% { opacity: 1; transform: scale(1.12); }
 }
 
-/* ---------- 页面边缘装饰（音符 / 唱片） ---------- */
+/* ---------- 环境光效（光晕 / 切页光圈） ---------- */
+
+/* 每页背后缓慢漂移的柔光；.page-inner 在上层，不会盖住文字。
+   光斑只留在上半屏，并用遮罩向下渐隐，避免底部出现浅色覆盖 */
+.page::before {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 30% 22%, rgba(var(--accent-rgb), 0.12), transparent 32%),
+    radial-gradient(circle at 72% 30%, rgba(var(--accent-2-rgb), 0.08), transparent 36%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 78%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 78%);
+  animation: glow-drift 26s ease-in-out infinite alternate;
+  pointer-events: none;
+  will-change: transform;
+}
+
+@keyframes glow-drift {
+  0% { transform: translate3d(-2%, 1%, 0) scale(1); }
+  100% { transform: translate3d(3%, -2%, 0) scale(1.08); }
+}
+
+/* 只让当前屏的光晕动画，离屏页面暂停，省电 */
+.page:not(.swiper-slide-active)::before {
+  animation-play-state: paused;
+}
+
+/* 切到某一页时扩散一次的光圈（app.js 重新挂 class 触发） */
+.entry-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 0;
+  width: 210px;
+  height: 210px;
+  margin: -105px 0 0 -105px;
+  border: 1px solid rgba(var(--accent-rgb), 0.55);
+  border-radius: 50%;
+  box-shadow:
+    0 0 36px rgba(var(--accent-rgb), 0.35),
+    inset 0 0 30px rgba(var(--accent-rgb), 0.2);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.entry-ring.is-bursting {
+  animation: ring-burst 1.5s ease-out forwards;
+}
+
+@keyframes ring-burst {
+  0% { transform: scale(0.35); opacity: 0; }
+  25% { opacity: 0.75; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+
+/* ---------- 页面边缘装饰（音符 / 光点） ---------- */
 
 .decor-layer {
   position: absolute;
@@ -393,6 +452,37 @@ body {
 .decor-layer .note-5 { left: 11%; --note-size: 13px; --note-duration: 15s; --note-delay: -9s; }
 .decor-layer .note-6 { right: 6%; --note-size: 21px; --note-duration: 13s; --note-delay: -5s; }
 
+/* 细碎光点：比音符更慢、更小，只沿两侧上浮 */
+.decor-layer .spark {
+  position: absolute;
+  bottom: -8vh;
+  width: var(--spark-size, 3px);
+  height: var(--spark-size, 3px);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.8);
+  opacity: 0;
+  animation: spark-rise var(--spark-duration, 18s) linear infinite;
+  animation-delay: var(--spark-delay, 0s);
+  will-change: transform, opacity;
+}
+
+.spark-1 { left: 5%; --spark-size: 3px; --spark-duration: 18s; --spark-delay: -2s; --spark-drift: 14px; }
+.spark-2 { left: 9%; --spark-size: 2px; --spark-duration: 24s; --spark-delay: -9s; --spark-drift: -10px; }
+.spark-3 { left: 13%; --spark-size: 4px; --spark-duration: 20s; --spark-delay: -14s; --spark-drift: 8px; }
+.spark-4 { left: 17%; --spark-size: 2px; --spark-duration: 26s; --spark-delay: -5s; --spark-drift: -14px; }
+.spark-5 { right: 5%; --spark-size: 3px; --spark-duration: 19s; --spark-delay: -11s; --spark-drift: -12px; }
+.spark-6 { right: 9%; --spark-size: 2px; --spark-duration: 23s; --spark-delay: -3s; --spark-drift: 10px; }
+.spark-7 { right: 13%; --spark-size: 4px; --spark-duration: 21s; --spark-delay: -16s; --spark-drift: -8px; }
+.spark-8 { right: 17%; --spark-size: 2px; --spark-duration: 27s; --spark-delay: -7s; --spark-drift: 12px; }
+
+@keyframes spark-rise {
+  0% { transform: translate3d(0, 0, 0); opacity: 0; }
+  15% { opacity: 0.55; }
+  70% { opacity: 0.35; }
+  100% { transform: translate3d(var(--spark-drift, 12px), -105vh, 0); opacity: 0; }
+}
+
 @keyframes note-rise {
   0% { transform: translate3d(0, 0, 0) rotate(-10deg); opacity: 0; }
   12% { opacity: 0.5; }
@@ -401,29 +491,10 @@ body {
   100% { transform: translate3d(-10px, -118vh, 0) rotate(-5deg); opacity: 0; }
 }
 
-.decor-layer .vinyl {
-  position: absolute;
-  right: 18px;
-  bottom: calc(20px + env(safe-area-inset-bottom));
-  width: 78px;
-  height: 78px;
-  display: none;
-  opacity: 0.5;
-  animation: vinyl-spin 9s linear infinite;
-  animation-play-state: paused;
-}
-
-.decor-layer .vinyl-label { fill: var(--accent); }
-
-/* 唱片只在配置了背景音乐时出现，播放时转、暂停时停 */
-#reportScreen.has-music .decor-layer .vinyl { display: block; }
-#reportScreen.is-playing .decor-layer .vinyl { animation-play-state: running; opacity: 0.62; }
 #reportScreen.decor-notes-off .decor-layer .note { display: none; }
-#reportScreen.decor-record-off .decor-layer .vinyl { display: none; }
-
-@keyframes vinyl-spin {
-  to { transform: rotate(360deg); }
-}
+#reportScreen.decor-ambient-off .page::before,
+#reportScreen.decor-ambient-off .decor-layer .spark,
+#reportScreen.decor-ambient-off .entry-ring { display: none; }
 
 .preview-badge {
   position: absolute;
@@ -441,6 +512,8 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .decor-layer { display: none; }
+  .page::before { display: none; }
+  .entry-ring { display: none; }
   .swipe-hint,
   .music-toggle.is-playing svg { animation: none; }
 }

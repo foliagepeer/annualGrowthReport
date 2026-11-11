@@ -120,9 +120,19 @@ function countUp(node, target) {
 function playPage(slide) {
   if (!slide) return;
   playAnimations(slide);
+  playEntryRing(slide);
   slide.querySelectorAll('[data-count]').forEach((node) => {
     countUp(node, reportData ? reportData[node.dataset.count] : 0);
   });
+}
+
+// 每次进入该屏扩散一次光圈：移除→强制重排→重新挂类，确保动画重播
+function playEntryRing(slide) {
+  const ring = slide.querySelector('.entry-ring');
+  if (!ring) return;
+  ring.classList.remove('is-bursting');
+  void ring.offsetWidth;
+  ring.classList.add('is-bursting');
 }
 
 /* ---------- 渲染 ---------- */
@@ -157,15 +167,23 @@ function hexToRgb(hex) {
 
 function applyTheme(theme) {
   const base = (theme && theme.base) || {};
-  if (base.accent) reportScreen.style.setProperty('--accent', base.accent);
-  if (base.accent2) reportScreen.style.setProperty('--accent-2', base.accent2);
+  if (base.accent) {
+    reportScreen.style.setProperty('--accent', base.accent);
+    const accentRgb = hexToRgb(base.accent);
+    if (accentRgb) reportScreen.style.setProperty('--accent-rgb', accentRgb);
+  }
+  if (base.accent2) {
+    reportScreen.style.setProperty('--accent-2', base.accent2);
+    const accent2Rgb = hexToRgb(base.accent2);
+    if (accent2Rgb) reportScreen.style.setProperty('--accent-2-rgb', accent2Rgb);
+  }
   const scrimRgb = hexToRgb(base.scrimColor);
   if (scrimRgb) reportScreen.style.setProperty('--scrim-rgb', scrimRgb);
   if (typeof base.scrim === 'number') reportScreen.style.setProperty('--scrim-alpha', String(base.scrim));
 
   const motion = (theme && theme.motion) || {};
   reportScreen.classList.toggle('decor-notes-off', motion.notes === false);
-  reportScreen.classList.toggle('decor-record-off', motion.record === false);
+  reportScreen.classList.toggle('decor-ambient-off', motion.ambient === false);
 
   const pages = (theme && theme.pages) || {};
   document.querySelectorAll('.page[data-bg]').forEach((page) => {
@@ -173,6 +191,8 @@ function applyTheme(theme) {
     const values = {
       '--accent': override.accent || '',
       '--accent-2': override.accent2 || '',
+      '--accent-rgb': hexToRgb(override.accent) || '',
+      '--accent-2-rgb': hexToRgb(override.accent2) || '',
       '--scrim-rgb': hexToRgb(override.scrimColor) || '',
       '--scrim-alpha': typeof override.scrim === 'number' ? String(override.scrim) : '',
     };
@@ -227,7 +247,6 @@ function rememberMusicPreference(value) {
 
 function setMusicState(playing) {
   musicToggle.classList.toggle('is-playing', playing);
-  reportScreen.classList.toggle('is-playing', playing);
   musicToggle.setAttribute('aria-label', playing ? '关闭背景音乐' : '播放背景音乐');
 }
 
@@ -242,7 +261,6 @@ function stopMusic() {
 
 function setupMusic(url) {
   musicToggle.hidden = !url;
-  reportScreen.classList.toggle('has-music', Boolean(url));
   if (!url) {
     bgm.removeAttribute('src');
     setMusicState(false);
@@ -306,6 +324,15 @@ function enterReport(data) {
   loadFonts(data.theme && data.theme.fonts);
   applyBackgrounds(data.backgrounds);
   setupMusic(data.music);
+
+  // 切页光圈的元素只建一次（纯装饰，不写进 HTML）
+  document.querySelectorAll('.page').forEach((page) => {
+    if (page.querySelector('.entry-ring')) return;
+    const ring = document.createElement('span');
+    ring.className = 'entry-ring';
+    ring.setAttribute('aria-hidden', 'true');
+    page.append(ring);
+  });
 
   if (previewMode) {
     changePasswordBtn.hidden = true;

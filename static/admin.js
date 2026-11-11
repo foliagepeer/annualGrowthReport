@@ -1430,11 +1430,24 @@ const FALLBACK_FONT = 'system-ui, -apple-system, "PingFang SC", "Microsoft YaHei
 const DEFAULT_THEME_CONFIG = {
   base: { accent: '#7dd3fc', accent2: '#bcd6ff', scrim: 0.45, scrimColor: '#060a14' },
   fonts: { display: null, body: null },
-  motion: { notes: true, record: true },
+  motion: { notes: true, ambient: true },
   pages: {},
 };
 
 const loadedPreviewFonts = new Set();
+
+// 页面键 → 面板里显示的名字（值仍是 data-bg 的键）
+const PAGE_NAMES = {
+  '01-opening': '开场页（姓名、部门）',
+  '02-days': '加入天数',
+  '03-hours': '志愿时长',
+  '04-activities': '活动次数',
+  '05-partner': '年度伙伴',
+  '06-message': '部长寄语',
+  '07-ending': '结尾页',
+};
+
+const pageName = key => PAGE_NAMES[key] || key;
 
 function defaultThemeConfig() {
   return JSON.parse(JSON.stringify(DEFAULT_THEME_CONFIG));
@@ -1524,12 +1537,12 @@ function renderThemeEditor() {
   $('#t_scrim').value = String(config.base.scrim);
   $('#t_scrimValue').textContent = Number(config.base.scrim).toFixed(2);
   $('#t_notes').checked = config.motion.notes !== false;
-  $('#t_record').checked = config.motion.record !== false;
+  $('#t_ambient').checked = config.motion.ambient !== false;
 
   const pageSelect = $('#t_page');
   const previousPage = pageSelect.value;
   pageSelect.textContent = '';
-  for (const key of state.meta.pageKeys) pageSelect.append(new Option(key, key));
+  for (const key of state.meta.pageKeys) pageSelect.append(new Option(pageName(key), key));
   if (previousPage && state.meta.pageKeys.includes(previousPage)) pageSelect.value = previousPage;
   renderPageFields();
 
@@ -1575,9 +1588,9 @@ $('#t_notes').addEventListener('change', (event) => {
   updateThemePreview();
 });
 
-$('#t_record').addEventListener('change', (event) => {
+$('#t_ambient').addEventListener('change', (event) => {
   if (!state.themeDraft) return;
-  state.themeDraft.motion.record = event.target.checked;
+  state.themeDraft.motion.ambient = event.target.checked;
   updateThemePreview();
 });
 
@@ -1617,7 +1630,7 @@ $('#t_pageSave').addEventListener('click', () => {
   $('#themeMessage').hidden = true;
   renderPageOverrides();
   updateThemePreview();
-  toast(`已更新 ${key} 的页面覆盖，记得保存主题`, { type: 'info' });
+  toast(`已保存「${pageName(key)}」的单独设置，记得保存主题`, { type: 'info' });
 });
 
 $('#t_pageClear').addEventListener('click', () => {
@@ -1628,7 +1641,7 @@ $('#t_pageClear').addEventListener('click', () => {
   renderPageFields();
   renderPageOverrides();
   updateThemePreview();
-  toast(`已清除 ${key} 的页面覆盖`, { type: 'info' });
+  toast(`「${pageName(key)}」已恢复为全局设置`, { type: 'info' });
 });
 
 function renderPageOverrides() {
@@ -1638,19 +1651,19 @@ function renderPageOverrides() {
   const pages = state.themeDraft.pages || {};
   const keys = Object.keys(pages);
   if (keys.length === 0) {
-    box.append(el('p', 'muted', '还没有按页覆盖'));
+    box.append(el('p', 'muted', '还没有单独调整的页面'));
     return;
   }
   for (const key of keys) {
     const override = pages[key];
     const row = el('div', 'row');
     const main = el('div', 'row-main');
-    main.append(el('strong', null, key));
+    main.append(el('strong', null, pageName(key)));
     const parts = [];
-    if (override.accent) parts.push(`主色 ${override.accent}`);
-    if (override.accent2) parts.push(`强调色 ${override.accent2}`);
-    if (typeof override.scrim === 'number') parts.push(`暗层 ${override.scrim}`);
-    if (override.scrimColor) parts.push(`暗层颜色 ${override.scrimColor}`);
+    if (override.accent) parts.push(`装饰 ${override.accent}`);
+    if (override.accent2) parts.push(`数字 ${override.accent2}`);
+    if (typeof override.scrim === 'number') parts.push(`压暗 ${override.scrim}`);
+    if (override.scrimColor) parts.push(`压暗色 ${override.scrimColor}`);
     main.append(el('span', 'muted', parts.join(' · ') || '（空覆盖）'));
 
     const actions = el('div', 'row-actions');
