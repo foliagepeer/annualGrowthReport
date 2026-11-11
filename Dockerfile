@@ -1,5 +1,5 @@
 # 构建阶段：安装依赖
-FROM node:24-alpine AS builder
+FROM node:24.22.1-alpine AS builder
 
 WORKDIR /app
 
@@ -12,7 +12,7 @@ COPY vendor ./vendor
 RUN npm ci --omit=dev --ignore-scripts
 
 # 运行阶段：只保留依赖与代码，不含 npm 缓存
-FROM node:24-alpine
+FROM node:24.22.1-alpine
 
 ENV NODE_ENV=production
 WORKDIR /app
