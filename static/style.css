@@ -366,34 +366,7 @@ body {
   50% { opacity: 1; transform: scale(1.12); }
 }
 
-/* ---------- 环境光效（光晕 / 切页光圈） ---------- */
-
-/* 每页背后缓慢漂移的柔光；.page-inner 在上层，不会盖住文字。
-   光斑只留在上半屏，并用遮罩向下渐隐，避免底部出现浅色覆盖 */
-.page::before {
-  content: "";
-  position: absolute;
-  inset: -12%;
-  z-index: 0;
-  background:
-    radial-gradient(circle at 30% 22%, rgba(var(--accent-rgb), 0.12), transparent 32%),
-    radial-gradient(circle at 72% 30%, rgba(var(--accent-2-rgb), 0.08), transparent 36%);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 78%);
-  mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 78%);
-  animation: glow-drift 26s ease-in-out infinite alternate;
-  pointer-events: none;
-  will-change: transform;
-}
-
-@keyframes glow-drift {
-  0% { transform: translate3d(-2%, 1%, 0) scale(1); }
-  100% { transform: translate3d(3%, -2%, 0) scale(1.08); }
-}
-
-/* 只让当前屏的光晕动画，离屏页面暂停，省电 */
-.page:not(.swiper-slide-active)::before {
-  animation-play-state: paused;
-}
+/* ---------- 环境光效（光点 / 切页光圈） ---------- */
 
 /* 切到某一页时扩散一次的光圈（app.js 重新挂 class 触发） */
 .entry-ring {
@@ -492,7 +465,6 @@ body {
 }
 
 #reportScreen.decor-notes-off .decor-layer .note { display: none; }
-#reportScreen.decor-ambient-off .page::before,
 #reportScreen.decor-ambient-off .decor-layer .spark,
 #reportScreen.decor-ambient-off .entry-ring { display: none; }
 
@@ -512,7 +484,6 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .decor-layer { display: none; }
-  .page::before { display: none; }
   .entry-ring { display: none; }
   .swipe-hint,
   .music-toggle.is-playing svg { animation: none; }

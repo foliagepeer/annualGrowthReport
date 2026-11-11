@@ -12,6 +12,9 @@ const { AttemptLimiter } = require('./rate-limit');
 const PORT = process.env.PORT || 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const COOKIE_NAME = 'report.sid';
+const ADMIN_COOKIE_NAME = 'report.admin.sid';
+const STUDENT_SESSION_MS = 1000 * 60 * 60 * 24 * 7;
+const ADMIN_SESSION_MS = 1000 * 60 * 60 * 12;
 
 if (!SESSION_SECRET) {
   console.error('缺少环境变量 SESSION_SECRET，拒绝启动');
@@ -34,23 +37,27 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-app.use(session({
+const sessionStore = new SQLiteSessionStore(db);
+const sessionBase = { secret: SESSION_SECRET, store: sessionStore, resave: false, saveUninitialized: false };
+
+// 管理员与学员用两套独立会话（独立 cookie）：登录/退出互不影响
+const adminSession = session({
+  ...sessionBase,
+  name: ADMIN_COOKIE_NAME,
+  cookie: { httpOnly: true, sameSite: 'lax', secure: false, maxAge: ADMIN_SESSION_MS },
+});
+const studentSession = session({
+  ...sessionBase,
   name: COOKIE_NAME,
-  secret: SESSION_SECRET,
-  store: new SQLiteSessionStore(db),
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: false, // 配好 HTTPS 后改成 true
-    maxAge: 1000 * 60 * 60 * 24 * 7,
-  },
-}));
+  cookie: { httpOnly: true, sameSite: 'lax', secure: false, maxAge: STUDENT_SESSION_MS },
+});
 
 // 管理接口自带 body 解析（上限更高），必须挂在全局 express.json() 之前，
 // 否则几百人的批量文本会先被全局默认的 100kb 上限拦成 413
-app.use('/api/admin', createAdminRouter({ db }));
+app.use('/api/admin', adminSession, createAdminRouter({ db, cookieName: ADMIN_COOKIE_NAME }));
+
+// 学员端会话（管理路由之后挂载）
+app.use(studentSession);
 
 app.use(express.json());
 

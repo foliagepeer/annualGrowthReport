@@ -27,7 +27,7 @@ admins(username PK, password_hash, created_at, password_changed_at, last_login_a
 | `POST /api/login` | 学号 + 密码；失败统一 `401 学号或密码错误`，不区分学号是否存在；成功后 `session.regenerate()` |
 | `GET /api/report` | 需 Session；返回 `name/department/joinDate/joinDays/volunteerHours/activityCount/partner/message` + `backgrounds`（基名→URL，只含磁盘真实存在的图）+ `music`（URL 或 null）+ `theme`（颜色/动效/按页覆盖 + 解析后的字体 URL，带 `?v=`） |
 | `POST /api/password` | 校验旧密码；新密码 6–64 位且不同于旧密码；成功后注销该学员其他设备的会话 |
-| `POST /api/logout` | 销毁整个会话（连管理面板一起退） |
+| `POST /api/logout` | 销毁学员会话（管理员会话独立，不受影响） |
 
 - 防暴力破解：同学号 5 次失败锁 10 分钟，同 IP 30 次锁 10 分钟（校园网共用出口，故意放宽）；命中返回 429；计数在内存（`rate-limit.js`），重启即清空。
 - 未知 `/api/*` → JSON 404；`OPTIONS` 统一 404；所有 `/api` 响应带 `Cache-Control: no-store`；方法不匹配也按 404 处理（有意简化）。
@@ -45,7 +45,7 @@ admins(username PK, password_hash, created_at, password_changed_at, last_login_a
 - **背景音乐**：右上角圆形开关（播放呼吸、暂停斜杠）；登录后自动尝试播放，被自动播放策略拦下时等用户点；偏好记在 `localStorage['report.bgm']`；查找优先级 mp3 → m4a → ogg → wav，Excel 留空时找与学号同名的文件。
 - **主题**：`base` 写到 `#reportScreen` 的 `--accent` / `--accent-2` / `--accent-rgb` / `--accent-2-rgb` / `--scrim-rgb` / `--scrim-alpha`；`pages` 覆盖写到对应 slide 的内联变量；`motion` 切换 `.decor-notes-off` / `.decor-ambient-off`。
 - **字体**：后端解析 URL 后，前端 FontFace API 注册 `ReportDisplay` / `ReportBody`，2 秒超时静默回退系统字体；`.huge`/`.number` 用 `--font-display`，`.line`/`.sub`/`.message` 用 `--font-body`。
-- **边缘与光效**：`.decor-layer` 内联 SVG 音符 + 8 颗光点；`.page::before` 环境柔光（上半屏，遮罩向下渐隐）；`.entry-ring` 切页光圈（`playPage` 重挂 class）；`prefers-reduced-motion` 下全部隐藏。
+- **边缘与光效**：`.decor-layer` 内联 SVG 音符 + 8 颗光点；`.entry-ring` 切页光圈（`playPage` 重挂 class）；`prefers-reduced-motion` 下全部隐藏。不要给整页加会持续动画的大面积光晕层——部分预览器/合成器会在图层接缝处渲染出横向亮带，登录页没有该层可作对照。
 - **预览模式**：`/index.html?preview=1&student=<学号>&themeId=<主题 id>`，先校验管理员会话，再走管理端预览接口；隐藏改密/退出，不写音乐偏好，**绝不调用 `/api/logout`**。
 - 登录/改密页不套主题；未登录或 Session 过期时自动停在登录页。
 
@@ -138,7 +138,7 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 - **路由顺序**：`GET /themes/fonts` 必须在 `/themes/:id` 之前；管理路由挂在全局 `express.json()` 之前（自带 2MB 上限）。
 - **上传安全**：扩展名白名单 + 文件名白名单 + `path.resolve` 前缀断言 + 临时文件 rename；同名默认 409，`overwrite=1` 才覆盖；同基名高优先级格式会遮蔽，响应 `shadows` 指出；资源 URL 一律带 `?v=<mtime>-<size>`。
 - **字体**：预设 5 款 OFL 子集字（ASCII + 常用标点 + GB2312 一级字 3755 + 界面文案，约 4200 字；生僻字逐字回退系统字体）入库，重新生成用 `scripts/subset-font-presets.py`（需 fonttools + brotli）；自定义 `fonts/custom/display|body.(woff2|woff)` 不入库，单文件 8MB，一槽一文件。
-- **会话**：管理员与学员共用 cookie；`/api/admin/logout` 只退面板，`/api/logout` 销毁全部；预览窗口不得调用 `/api/logout`、不得写音乐偏好；非管理员带预览参数回落登录页。
+- **会话**：管理员与学员使用**独立 cookie**（`report.admin.sid` / `report.sid`），登录/退出互不影响；`/api/admin/logout` 只销毁管理会话，`/api/logout` 只销毁学员会话。预览窗口不得调用 `/api/logout`、不得写音乐偏好；非管理员带预览参数回落登录页。
 - **撤销**：`lib/undo-buffer.js` 内存快照（含密码哈希），15 分钟 / 20 条上限，重启清空；媒体文件删除不可撤销。
 - **响应约定**：`/api` 全部 `no-store`；`OPTIONS` 与方法不匹配统一 404；错误 JSON `{error}`。
 - **性能**：约 400 rps，并发 25 以上延迟上升但不报错；扩容方向是多实例 + nginx，而不是改业务代码。
@@ -148,6 +148,6 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 - 旧库启动：补列、`themes` seed、登录/报告/导入导出/媒体无回归。
 - 接口：`/api/report` 含 backgrounds/music/theme；主题 CRUD、默认/复制、删除保护；`/themes/fonts` 不被 `:id` 吞；字体上传 magic/8MB/覆盖清理；>8MB 413。
 - 数据链路：赋主题 → 编辑 → 文本导入 → Excel 导入 → 删除后撤销，主题不丢；导出再导入不丢。
-- 社员端：7 屏翻页/动画/数字滚动；背景图与暗层；音乐开关与偏好；主题颜色/字体/按页覆盖；音符、光点、柔光、切页光圈；`prefers-reduced-motion` 降级；预览模式无改密/退出。
+- 社员端：7 屏翻页/动画/数字滚动；背景图与暗层；音乐开关与偏好；主题颜色/字体/按页覆盖；音符、光点、切页光圈；`prefers-reduced-motion` 降级；预览模式无改密/退出。
 - 管理端：批量操作与撤销、批量媒体、按文件名归属、外观编辑与真实预览、提示/对话框样式。
 - 移动端手测：iPhone/Android 字体加载无跳动、自动播放被拦、动画帧率正常。

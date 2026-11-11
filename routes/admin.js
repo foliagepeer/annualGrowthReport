@@ -52,7 +52,7 @@ function toStudentDto(row) {
   };
 }
 
-module.exports = function createAdminRouter({ db }) {
+module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid' }) {
   const router = express.Router();
 
   /* ---------- 预编译语句 ---------- */
@@ -140,8 +140,11 @@ module.exports = function createAdminRouter({ db }) {
   });
 
   router.post('/logout', (req, res) => {
-    if (req.session) delete req.session.admin; // 只退管理面板，不影响同一浏览器里的学员登录
-    req.session.save(() => res.json({ success: true }));
+    // 只销毁管理会话；学员会话是另一套 cookie，不受影响
+    req.session.destroy(() => {
+      res.clearCookie(cookieName);
+      res.json({ success: true });
+    });
   });
 
   router.get('/session', requireAdmin, (req, res) => {
