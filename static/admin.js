@@ -8,7 +8,13 @@ const state = {
   media: null,
   mediaStudentId: '',
   preview: { source: null, text: '', file: null },
+  reportPreview: null,
   editing: null,
+  themes: [],
+  themeFonts: null,
+  themeEditingId: '',
+  themeDraft: null,
+  previewStudentId: '',
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -211,9 +217,13 @@ async function enterPanel() {
     $('#headerHint').textContent = (state.meta.headers || []).join('、');
     $('#batchKeys').textContent = (state.meta.pageKeys || []).join('、');
     const banner = $('#warnBanner');
+    const themeReady = Boolean(state.meta.features && state.meta.features.theme && state.meta.extensions && state.meta.extensions.font);
     if (!state.meta.extensions) {
       // 典型场景：静态文件更新了但后端镜像没重建，字段对不上
       banner.textContent = '前后端版本不一致（/meta 缺少 extensions 字段），媒体区无法使用。请在项目目录执行 docker compose up -d --build 后刷新本页。';
+      banner.hidden = false;
+    } else if (!themeReady) {
+      banner.textContent = '前后端版本不一致（/meta 缺少 theme/font 字段），外观与字体功能无法使用。请执行 docker compose up -d --build 后刷新本页。';
       banner.hidden = false;
     } else if (!state.meta.media.writable) {
       banner.textContent = '容器对静态资源目录没有写权限，上传会失败。请检查 docker-compose.yml 里 app 服务的 ./static 挂载是否已去掉 :ro，并执行 docker compose up -d。';
@@ -222,6 +232,14 @@ async function enterPanel() {
   }
   await loadStudents();
   await loadMedia();
+  if (state.meta.features && state.meta.features.theme) {
+    try {
+      await loadThemes();
+      await loadThemeFonts();
+    } catch (error) {
+      showError(error);
+    }
+  }
 }
 
 $('#loginForm').addEventListener('submit', async (event) => {
@@ -260,6 +278,9 @@ function selectTab(name) {
   for (const panel of document.querySelectorAll('.tab-panel')) {
     panel.hidden = panel.id !== `tab-${name}`;
   }
+  if (name === 'theme' && state.meta && state.meta.features && state.meta.features.theme && state.themes.length === 0) {
+    loadThemes().then(loadThemeFonts).catch(showError);
+  }
 }
 
 for (const tab of document.querySelectorAll('.tab')) {
@@ -276,6 +297,7 @@ async function loadStudents() {
     ? `匹配 ${data.total} 人（显示 ${data.items.length} 人）`
     : `共 ${data.total} 人`;
   renderStudents();
+  renderPreviewStudentSelect();
 }
 
 function renderStudents() {
@@ -312,6 +334,10 @@ function renderStudents() {
     const tags = el('div', 'tags');
     if (item.bgDir) tags.append(el('span', 'tag', `专属图目录：${item.bgDir}`));
     if (item.bgMusic) tags.append(el('span', 'tag', `音乐：${item.bgMusic}`));
+    if (item.theme) {
+      const theme = themeById(item.theme);
+      tags.append(el('span', 'tag', `主题：${theme ? theme.name : item.theme}`));
+    }
     if (tags.childElementCount > 0) main.append(tags);
 
     const head = el('div', 'row-head');
@@ -552,6 +578,7 @@ function openEditor(item) {
   $('#f_message').value = item ? item.message || '' : '';
   $('#f_bgDir').value = item ? item.bgDir || '' : '';
   $('#f_bgMusic').value = item ? item.bgMusic || '' : '';
+  $('#f_theme').value = item && item.theme ? item.theme : '';
   $('#f_password').value = '';
   $('#f_password').placeholder = item ? '留空 = 不修改密码' : '留空 = 用学号后六位';
   const message = $('#editorMessage');
@@ -591,6 +618,7 @@ $('#editorForm').addEventListener('submit', async (event) => {
     message: $('#f_message').value,
     bgDir: $('#f_bgDir').value.trim(),
     bgMusic: $('#f_bgMusic').value.trim(),
+    theme: $('#f_theme').value,
     password: $('#f_password').value,
   };
 
@@ -658,6 +686,7 @@ async function removeStudent(item) {
 async function previewReport(item) {
   try {
     const data = await request(`/students/${encodeURIComponent(item.studentId)}/report`);
+    state.reportPreview = { studentId: item.studentId, themeId: data.themeId || '' };
     $('#reportTitle').textContent = `报告预览：${data.name}（${data.studentId}）`;
     const body = $('#reportBody');
     body.textContent = '';
@@ -672,6 +701,7 @@ async function previewReport(item) {
       ['部长寄语', data.message],
       ['背景图目录', data.bgDir || '（未指定，用学号目录）'],
       ['背景音乐', data.bgMusic || '（未指定，找与学号同名）'],
+      ['主题', data.themeId || '（默认主题）'],
     ]) {
       body.append(el('div', 'muted', `${label}：${value ?? '-'}`));
     }
@@ -681,6 +711,8 @@ async function previewReport(item) {
       body.append(el('div', null, `${key}：${url || '未配置（用页面渐变）'}`));
     }
     body.append(el('div', null, `背景音乐：${data.music || '未配置'}`));
+    body.append(el('div', null, `标题字体：${data.theme.fonts.display || '系统默认'}`));
+    body.append(el('div', null, `正文字体：${data.theme.fonts.body || '系统默认'}`));
     $('#reportOverlay').hidden = false;
   } catch (error) {
     showError(error);
@@ -688,6 +720,17 @@ async function previewReport(item) {
 }
 
 $('#reportClose').addEventListener('click', () => { $('#reportOverlay').hidden = true; });
+
+$('#realPreviewBtn').addEventListener('click', () => {
+  const info = state.reportPreview;
+  if (!info || !info.studentId) return;
+  const themeQuery = info.themeId ? `&themeId=${encodeURIComponent(info.themeId)}` : '';
+  window.open(
+    `/index.html?preview=1&student=${encodeURIComponent(info.studentId)}${themeQuery}`,
+    '_blank',
+    'noopener'
+  );
+});
 
 /* ---------- 批量媒体操作 ---------- */
 
@@ -1375,6 +1418,543 @@ $('#commitExcelBtn').addEventListener('click', async () => {
     await loadMedia();
     toast(`导入完成：写入 ${result.imported} 条，无变化 ${result.unchanged} 条，跳过 ${result.skipped.length} 条`
       + (result.defaulted ? `，其中 ${result.defaulted} 人使用初始密码` : ''));
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+});
+
+/* ---------- 外观 / 主题 ---------- */
+
+const FALLBACK_FONT = 'system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+const DEFAULT_THEME_CONFIG = {
+  base: { accent: '#7dd3fc', accent2: '#bcd6ff', scrim: 0.45, scrimColor: '#060a14' },
+  fonts: { display: null, body: null },
+  motion: { notes: true, record: true },
+  pages: {},
+};
+
+const loadedPreviewFonts = new Set();
+
+function defaultThemeConfig() {
+  return JSON.parse(JSON.stringify(DEFAULT_THEME_CONFIG));
+}
+
+function themeById(id) {
+  return state.themes.find(theme => theme.id === id) || null;
+}
+
+function showThemeMessage(text) {
+  const message = $('#themeMessage');
+  message.textContent = text;
+  message.hidden = false;
+}
+
+async function loadThemes() {
+  const data = await request('/themes');
+  state.themes = data.items || [];
+  if (!state.themes.some(theme => theme.id === state.themeEditingId)) {
+    const fallback = state.themes.find(theme => theme.isDefault) || state.themes[0];
+    state.themeEditingId = fallback ? fallback.id : '';
+  }
+  renderThemeSelects();
+  renderThemeEditor();
+  if (state.students.length > 0) renderStudents(); // 主题名加载后刷新成员卡片上的标签
+}
+
+async function loadThemeFonts() {
+  state.themeFonts = await request('/themes/fonts');
+  renderFontOptions();
+  renderFontStates();
+}
+
+function renderThemeSelects() {
+  const current = {
+    themeSelect: state.themeEditingId,
+    themeAssignSelect: $('#themeAssignSelect').value,
+    f_theme: $('#f_theme').value,
+  };
+  for (const [id, value] of Object.entries(current)) {
+    const select = $(`#${id}`);
+    select.textContent = '';
+    if (id !== 'themeSelect') select.append(new Option('默认主题', ''));
+    for (const theme of state.themes) {
+      select.append(new Option(`${theme.name}${theme.isDefault ? '（默认）' : ''}`, theme.id));
+    }
+    if (value) select.value = value;
+  }
+  $('#themeSelect').value = state.themeEditingId;
+}
+
+function renderPreviewStudentSelect() {
+  const select = $('#previewStudent');
+  if (!select) return;
+  const current = select.value || state.previewStudentId;
+  select.textContent = '';
+  for (const item of state.students) {
+    select.append(new Option(`${item.name}（${item.studentId}）`, item.studentId));
+  }
+  if (current && [...select.options].some(option => option.value === current)) select.value = current;
+  else if (select.options.length > 0) select.selectedIndex = 0;
+  state.previewStudentId = select.value || '';
+}
+
+function setColorInputs(name, value) {
+  if (!value) return;
+  $(`#t_${name}`).value = value;
+  $(`#t_${name}Hex`).value = value.toUpperCase();
+}
+
+function renderThemeEditor() {
+  const theme = themeById(state.themeEditingId);
+  const form = $('#themeForm');
+  form.querySelectorAll('input, select, button, textarea').forEach((node) => { node.disabled = !theme; });
+  if (!theme) {
+    state.themeDraft = null;
+    $('#themeMeta').textContent = '还没有主题，点「新建」创建一个';
+    return;
+  }
+
+  state.themeDraft = JSON.parse(JSON.stringify(theme.config));
+  const config = state.themeDraft;
+  $('#t_name').value = theme.name;
+  setColorInputs('accent', config.base.accent);
+  setColorInputs('accent2', config.base.accent2);
+  setColorInputs('scrimColor', config.base.scrimColor);
+  $('#t_scrim').value = String(config.base.scrim);
+  $('#t_scrimValue').textContent = Number(config.base.scrim).toFixed(2);
+  $('#t_notes').checked = config.motion.notes !== false;
+  $('#t_record').checked = config.motion.record !== false;
+
+  const pageSelect = $('#t_page');
+  const previousPage = pageSelect.value;
+  pageSelect.textContent = '';
+  for (const key of state.meta.pageKeys) pageSelect.append(new Option(key, key));
+  if (previousPage && state.meta.pageKeys.includes(previousPage)) pageSelect.value = previousPage;
+  renderPageFields();
+
+  renderFontOptions();
+  renderFontStates();
+  renderPageOverrides();
+  updateThemePreview();
+
+  const usage = theme.isDefault ? '默认主题' : `使用 ${theme.usage} 人`;
+  $('#themeMeta').textContent = `${theme.name} · ${usage}${theme.invalid ? ' · 配置损坏，已按默认值读取' : ''}`;
+}
+
+function setDraftColor(name, value) {
+  if (!state.themeDraft || !/^#[0-9a-fA-F]{6}$/.test(value)) return;
+  state.themeDraft.base[name] = value.toLowerCase();
+  updateThemePreview();
+}
+
+for (const name of ['accent', 'accent2', 'scrimColor']) {
+  $(`#t_${name}`).addEventListener('input', (event) => {
+    $(`#t_${name}Hex`).value = event.target.value.toUpperCase();
+    setDraftColor(name, event.target.value);
+  });
+  $(`#t_${name}Hex`).addEventListener('input', (event) => {
+    const value = event.target.value.trim();
+    if (!/^#[0-9a-fA-F]{6}$/.test(value)) return;
+    $(`#t_${name}`).value = value;
+    setDraftColor(name, value);
+  });
+}
+
+$('#t_scrim').addEventListener('input', (event) => {
+  if (!state.themeDraft) return;
+  const value = Number(event.target.value);
+  state.themeDraft.base.scrim = Math.round(value * 100) / 100;
+  $('#t_scrimValue').textContent = value.toFixed(2);
+  updateThemePreview();
+});
+
+$('#t_notes').addEventListener('change', (event) => {
+  if (!state.themeDraft) return;
+  state.themeDraft.motion.notes = event.target.checked;
+  updateThemePreview();
+});
+
+$('#t_record').addEventListener('change', (event) => {
+  if (!state.themeDraft) return;
+  state.themeDraft.motion.record = event.target.checked;
+  updateThemePreview();
+});
+
+function renderPageFields() {
+  if (!state.themeDraft) return;
+  const override = (state.themeDraft.pages || {})[$('#t_page').value] || {};
+  $('#t_pageAccent').value = override.accent || '';
+  $('#t_pageAccent2').value = override.accent2 || '';
+  $('#t_pageScrimColor').value = override.scrimColor || '';
+  $('#t_pageScrim').value = typeof override.scrim === 'number' ? String(override.scrim) : '';
+}
+
+$('#t_page').addEventListener('change', renderPageFields);
+
+$('#t_pageSave').addEventListener('click', () => {
+  if (!state.themeDraft) return;
+  const key = $('#t_page').value;
+  if (!key) return;
+  const accent = $('#t_pageAccent').value.trim();
+  const accent2 = $('#t_pageAccent2').value.trim();
+  const scrimColor = $('#t_pageScrimColor').value.trim();
+  const scrimRaw = $('#t_pageScrim').value.trim();
+  for (const value of [accent, accent2, scrimColor]) {
+    if (value && !/^#[0-9a-fA-F]{6}$/.test(value)) return showThemeMessage('页面颜色需为 #RRGGBB');
+  }
+  const override = {};
+  if (accent) override.accent = accent.toLowerCase();
+  if (accent2) override.accent2 = accent2.toLowerCase();
+  if (scrimColor) override.scrimColor = scrimColor.toLowerCase();
+  if (scrimRaw !== '') {
+    const scrim = Number(scrimRaw);
+    if (!Number.isFinite(scrim) || scrim < 0 || scrim > 0.9) return showThemeMessage('页面暗层强度需在 0–0.9 之间');
+    override.scrim = Math.round(scrim * 100) / 100;
+  }
+  if (Object.keys(override).length === 0) delete state.themeDraft.pages[key];
+  else state.themeDraft.pages[key] = override;
+  $('#themeMessage').hidden = true;
+  renderPageOverrides();
+  updateThemePreview();
+  toast(`已更新 ${key} 的页面覆盖，记得保存主题`, { type: 'info' });
+});
+
+$('#t_pageClear').addEventListener('click', () => {
+  if (!state.themeDraft) return;
+  const key = $('#t_page').value;
+  if (!key) return;
+  delete state.themeDraft.pages[key];
+  renderPageFields();
+  renderPageOverrides();
+  updateThemePreview();
+  toast(`已清除 ${key} 的页面覆盖`, { type: 'info' });
+});
+
+function renderPageOverrides() {
+  const box = $('#t_pageList');
+  box.textContent = '';
+  if (!state.themeDraft) return;
+  const pages = state.themeDraft.pages || {};
+  const keys = Object.keys(pages);
+  if (keys.length === 0) {
+    box.append(el('p', 'muted', '还没有按页覆盖'));
+    return;
+  }
+  for (const key of keys) {
+    const override = pages[key];
+    const row = el('div', 'row');
+    const main = el('div', 'row-main');
+    main.append(el('strong', null, key));
+    const parts = [];
+    if (override.accent) parts.push(`主色 ${override.accent}`);
+    if (override.accent2) parts.push(`强调色 ${override.accent2}`);
+    if (typeof override.scrim === 'number') parts.push(`暗层 ${override.scrim}`);
+    if (override.scrimColor) parts.push(`暗层颜色 ${override.scrimColor}`);
+    main.append(el('span', 'muted', parts.join(' · ') || '（空覆盖）'));
+
+    const actions = el('div', 'row-actions');
+    actions.append(button('删除', 'danger', () => {
+      delete state.themeDraft.pages[key];
+      renderPageOverrides();
+      updateThemePreview();
+    }));
+    row.append(main, actions);
+    box.append(row);
+  }
+}
+
+function fontUrlFor(choice, slot) {
+  if (!choice) return null;
+  if (choice === 'custom') {
+    const custom = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[slot];
+    return custom ? custom.url : null;
+  }
+  const presets = (state.themeFonts && state.themeFonts.presets) || [];
+  const preset = presets.find(item => item.id === choice);
+  return preset ? preset.url : null;
+}
+
+function renderFontOptions() {
+  if (!state.themeDraft) return;
+  const presets = (state.themeFonts && state.themeFonts.presets) || [];
+  for (const slot of ['display', 'body']) {
+    const select = $(slot === 'display' ? '#t_fontDisplay' : '#t_fontBody');
+    const current = state.themeDraft.fonts[slot] || '';
+    select.textContent = '';
+    select.append(new Option('系统默认', ''));
+    for (const preset of presets) select.append(new Option(preset.name, preset.id));
+    const custom = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[slot];
+    select.append(new Option(custom ? '自定义（已上传）' : '自定义（未上传）', 'custom'));
+    select.value = current;
+    if (select.value !== current) {
+      // 预设文件可能被删除：回退系统默认
+      select.value = '';
+      state.themeDraft.fonts[slot] = null;
+    }
+  }
+}
+
+function renderFontStates() {
+  for (const slot of ['display', 'body']) {
+    const custom = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[slot];
+    const stateNode = $(slot === 'display' ? '#t_fontDisplayState' : '#t_fontBodyState');
+    const deleteBtn = $(slot === 'display' ? '#t_fontDisplayDelete' : '#t_fontBodyDelete');
+    stateNode.textContent = custom ? `${custom.name} · ${Math.round(custom.size / 1024)} KB` : '尚未上传';
+    deleteBtn.hidden = !custom;
+  }
+}
+
+for (const slot of ['display', 'body']) {
+  $(slot === 'display' ? '#t_fontDisplay' : '#t_fontBody').addEventListener('change', (event) => {
+    if (!state.themeDraft) return;
+    state.themeDraft.fonts[slot] = event.target.value || null;
+    const custom = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[slot];
+    if (event.target.value === 'custom' && !custom) {
+      toast('这个槽位还没有上传自定义字体，保存后会回退系统字体', { type: 'warn' });
+    }
+    updateThemePreview();
+  });
+}
+
+async function uploadSlotFont(slot, file) {
+  if (!file) return;
+  const extensions = (state.meta && state.meta.extensions && state.meta.extensions.font) || ['.woff2', '.woff'];
+  const ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+  if (!extensions.includes(ext)) return alertDialog(`只支持 ${extensions.join(' / ')} 格式`);
+  const limit = (state.meta && state.meta.limits && state.meta.limits.font) || 8 * 1024 * 1024;
+  if (file.size > limit) return alertDialog(`字体不能超过 ${Math.round(limit / 1024 / 1024)}MB，建议先做子集化`);
+
+  const name = `${slot}${ext}`;
+  try {
+    try {
+      await upload({ kind: 'font', dir: '', name, file });
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      if (!await confirmDialog('该槽位已有字体，要覆盖吗？', { title: '覆盖字体', confirmText: '覆盖' })) return;
+      await upload({ kind: 'font', dir: '', name, file, overwrite: true });
+    }
+    await loadThemeFonts();
+    if (state.themeDraft) state.themeDraft.fonts[slot] = 'custom';
+    renderFontOptions();
+    renderFontStates();
+    updateThemePreview();
+    toast('字体已上传并选中，保存主题后生效');
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+}
+
+$('#t_fontDisplayFile').addEventListener('change', (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = '';
+  uploadSlotFont('display', file);
+});
+
+$('#t_fontBodyFile').addEventListener('change', (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = '';
+  uploadSlotFont('body', file);
+});
+
+async function deleteSlotFont(slot) {
+  const custom = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[slot];
+  if (!custom) return;
+  const label = slot === 'display' ? '标题' : '正文';
+  if (!await confirmDialog(`确定删除自定义${label}字体「${custom.name}」吗？所有使用「自定义」的主题都会回退到系统字体；媒体文件删除无法撤销。`, { title: '删除字体', confirmText: '删除', danger: true })) return;
+  try {
+    await request(`/media?kind=font&dir=&name=${encodeURIComponent(custom.name)}`, { method: 'DELETE' });
+    await loadThemeFonts();
+    if (state.themeDraft && state.themeDraft.fonts[slot] === 'custom') {
+      state.themeDraft.fonts[slot] = null;
+      renderFontOptions();
+    }
+    renderFontStates();
+    updateThemePreview();
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+}
+
+$('#t_fontDisplayDelete').addEventListener('click', () => deleteSlotFont('display'));
+$('#t_fontBodyDelete').addEventListener('click', () => deleteSlotFont('body'));
+
+function hexToRgb(hex) {
+  const matched = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!matched) return null;
+  const value = parseInt(matched[1], 16);
+  return `${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}`;
+}
+
+function updateThemePreview() {
+  const stage = $('#themePreview');
+  if (!state.themeDraft) return;
+  const base = state.themeDraft.base;
+  stage.style.setProperty('--accent', base.accent);
+  stage.style.setProperty('--accent-2', base.accent2);
+  stage.style.setProperty('--scrim-rgb', hexToRgb(base.scrimColor) || '6, 10, 20');
+  stage.style.setProperty('--scrim-alpha', String(base.scrim));
+  applyPreviewFont(stage, 'display', state.themeDraft.fonts.display);
+  applyPreviewFont(stage, 'body', state.themeDraft.fonts.body);
+}
+
+async function applyPreviewFont(stage, slot, choice) {
+  const variable = slot === 'display' ? '--preview-font-display' : '--preview-font-body';
+  const family = slot === 'display' ? 'ThemePreviewDisplay' : 'ThemePreviewBody';
+  const url = fontUrlFor(choice, slot);
+  if (!url) {
+    stage.style.setProperty(variable, FALLBACK_FONT);
+    return;
+  }
+  try {
+    const key = `${family}|${url}`;
+    if (!loadedPreviewFonts.has(key)) {
+      const face = new FontFace(family, `url("${url}")`);
+      await face.load();
+      document.fonts.add(face);
+      loadedPreviewFonts.add(key);
+    }
+    stage.style.setProperty(variable, `"${family}", ${FALLBACK_FONT}`);
+  } catch {
+    stage.style.setProperty(variable, FALLBACK_FONT);
+  }
+}
+
+async function saveTheme(openPreview) {
+  if (!state.themeDraft || !state.themeEditingId) return;
+  $('#themeMessage').hidden = true;
+  const name = $('#t_name').value.trim();
+  if (!name) return showThemeMessage('请填写主题名称');
+
+  const submit = $('#themeForm button[type="submit"]');
+  submit.disabled = true;
+  try {
+    const result = await request(`/themes/${encodeURIComponent(state.themeEditingId)}`, {
+      method: 'PUT',
+      body: { name, config: state.themeDraft },
+    });
+    const usage = (themeById(state.themeEditingId) || {}).usage || 0;
+    state.themes = state.themes.map(theme => theme.id === result.theme.id ? { ...result.theme, usage } : theme);
+    renderThemeSelects();
+    renderThemeEditor();
+    toast('主题已保存');
+    if (openPreview) openRealPreview();
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showThemeMessage(error.message);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+function openRealPreview() {
+  const studentId = $('#previewStudent').value;
+  if (!studentId) return alertDialog('请先选择预览学员');
+  if (!state.themeEditingId) return alertDialog('请先保存主题');
+  window.open(
+    `/index.html?preview=1&student=${encodeURIComponent(studentId)}&themeId=${encodeURIComponent(state.themeEditingId)}`,
+    '_blank',
+    'noopener'
+  );
+}
+
+$('#themeForm').addEventListener('submit', (event) => {
+  event.preventDefault();
+  saveTheme(false);
+});
+
+$('#themeSavePreviewBtn').addEventListener('click', () => saveTheme(true));
+$('#openRealPreviewBtn').addEventListener('click', () => saveTheme(true));
+
+$('#themeSelect').addEventListener('change', (event) => {
+  state.themeEditingId = event.target.value;
+  renderThemeEditor();
+});
+
+$('#themeNewBtn').addEventListener('click', async () => {
+  try {
+    const result = await request('/themes', { method: 'POST', body: { name: '新主题', config: defaultThemeConfig() } });
+    await loadThemes();
+    state.themeEditingId = result.theme.id;
+    renderThemeSelects();
+    renderThemeEditor();
+    toast('已新建主题，改完记得保存');
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+});
+
+$('#themeDuplicateBtn').addEventListener('click', async () => {
+  if (!state.themeEditingId) return;
+  try {
+    const result = await request(`/themes/${encodeURIComponent(state.themeEditingId)}/duplicate`, { method: 'POST', body: {} });
+    await loadThemes();
+    state.themeEditingId = result.theme.id;
+    renderThemeSelects();
+    renderThemeEditor();
+    toast('已复制主题');
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+});
+
+$('#themeDefaultBtn').addEventListener('click', async () => {
+  const theme = themeById(state.themeEditingId);
+  if (!theme) return;
+  if (!await confirmDialog(`把「${theme.name}」设为默认主题吗？没有单独指定主题的成员都会使用它。`, { title: '设为默认主题' })) return;
+  try {
+    await request(`/themes/${encodeURIComponent(theme.id)}/default`, { method: 'POST' });
+    await loadThemes();
+    toast('已设为默认主题');
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+});
+
+$('#themeDeleteBtn').addEventListener('click', async () => {
+  const theme = themeById(state.themeEditingId);
+  if (!theme) return;
+  if (!await confirmDialog(`确定删除主题「${theme.name}」吗？仍被成员使用的主题需要先更换；删除无法撤销。`, { title: '删除主题', confirmText: '删除', danger: true })) return;
+  try {
+    await request(`/themes/${encodeURIComponent(theme.id)}`, { method: 'DELETE' });
+    state.themeEditingId = '';
+    await loadThemes();
+    toast('主题已删除');
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error); // 409 会显示「还有 N 名成员在使用」
+  }
+});
+
+$('#batchThemeBtn').addEventListener('click', () => {
+  if (state.selected.size === 0) return;
+  $('#themeAssignSummary').textContent = `将给已勾选的 ${state.selected.size} 位成员应用主题`;
+  renderThemeSelects();
+  $('#themeAssignSelect').value = '';
+  $('#themeAssignOverlay').hidden = false;
+});
+
+$('#themeAssignCancel').addEventListener('click', () => { $('#themeAssignOverlay').hidden = true; });
+
+$('#themeAssignForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const ids = Array.from(state.selected);
+  if (ids.length === 0) return;
+  const themeId = $('#themeAssignSelect').value;
+  const theme = themeId ? themeById(themeId) : null;
+  const label = theme ? theme.name : '默认主题';
+  if (!await confirmDialog(`确定给这 ${ids.length} 位成员应用「${label}」吗？10 秒内可在右下角提示里撤销。`, { title: '应用主题', confirmText: '应用' })) return;
+  try {
+    const result = await request('/students/batch', { method: 'POST', body: { studentIds: ids, set: { theme: themeId } } });
+    $('#themeAssignOverlay').hidden = true;
+    clearSelection();
+    await loadStudents();
+    toast(`已为 ${result.updated} 位成员应用主题`, undoToast(result.undo));
   } catch (error) {
     if (error.status === 401) return showLogin('登录已过期，请重新登录');
     showError(error);

@@ -36,11 +36,20 @@ db.exec(`
     password_changed_at TEXT,
     last_login_at TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS themes (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    config TEXT NOT NULL,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // CREATE TABLE IF NOT EXISTS 不会给已存在的表补字段，老库需要手动补列
 const studentColumns = db.prepare('PRAGMA table_info(students)').all().map(column => column.name);
-for (const column of ['bg_dir', 'bg_music', 'join_date']) {
+for (const column of ['bg_dir', 'bg_music', 'join_date', 'theme']) {
   if (!studentColumns.includes(column)) db.exec(`ALTER TABLE students ADD COLUMN ${column} TEXT`);
 }
 
@@ -49,5 +58,8 @@ if (studentColumns.includes('join_days')) {
   db.exec("UPDATE students SET join_date = date('now', '-' || join_days || ' days') WHERE join_date IS NULL AND join_days IS NOT NULL");
   db.exec('ALTER TABLE students DROP COLUMN join_days');
 }
+
+// 老库没有默认主题时补一条；必须放在 students.theme 列补齐之后
+require('./lib/themes').ensureDefault(db);
 
 module.exports = db;

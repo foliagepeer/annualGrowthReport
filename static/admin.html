@@ -33,6 +33,7 @@
     <button class="tab is-active" data-tab="students" type="button">成员</button>
     <button class="tab" data-tab="media" type="button">媒体资源</button>
     <button class="tab" data-tab="io" type="button">导入导出</button>
+    <button class="tab" data-tab="theme" type="button">外观</button>
   </nav>
 
   <p id="warnBanner" class="msg warn" hidden></p>
@@ -51,6 +52,7 @@
         <span class="grow"></span>
         <button id="batchEditBtn" class="primary" type="button">批量修改</button>
         <button id="batchMediaBtn" class="primary" type="button">批量媒体</button>
+        <button id="batchThemeBtn" class="primary" type="button">应用主题</button>
         <button id="batchExportBtn" class="ghost" type="button">导出所选</button>
         <button id="batchResetBtn" class="ghost" type="button">重置密码</button>
         <button id="batchDeleteBtn" class="danger" type="button">批量删除</button>
@@ -140,6 +142,114 @@
       <h2>预览结果</h2>
       <div id="previewBox" class="list"></div>
     </section>
+
+    <!-- 外观 / 主题 -->
+    <section id="tab-theme" class="tab-panel" hidden>
+      <div class="toolbar">
+        <label class="field-label" for="themeSelect">主题</label>
+        <select id="themeSelect" class="field select-narrow"></select>
+        <button id="themeNewBtn" class="primary" type="button">新建</button>
+        <button id="themeDuplicateBtn" class="ghost" type="button">复制</button>
+        <button id="themeDefaultBtn" class="ghost" type="button">设为默认</button>
+        <button id="themeDeleteBtn" class="danger" type="button">删除</button>
+      </div>
+      <p id="themeMeta" class="muted"></p>
+
+      <div class="theme-layout">
+        <form id="themeForm" class="card editor" novalidate>
+          <label>主题名称<input id="t_name" class="field" type="text" maxlength="32"></label>
+
+          <h3>颜色与暗层</h3>
+          <div class="grid">
+            <label>主色（音符、唱片点缀）
+              <span class="color-row">
+                <input id="t_accent" class="color-input" type="color">
+                <input id="t_accentHex" class="field" type="text" maxlength="7">
+              </span>
+            </label>
+            <label>强调色（大数字渐变）
+              <span class="color-row">
+                <input id="t_accent2" class="color-input" type="color">
+                <input id="t_accent2Hex" class="field" type="text" maxlength="7">
+              </span>
+            </label>
+            <label>暗层颜色（背景图压暗）
+              <span class="color-row">
+                <input id="t_scrimColor" class="color-input" type="color">
+                <input id="t_scrimColorHex" class="field" type="text" maxlength="7">
+              </span>
+            </label>
+            <label>暗层强度 <span id="t_scrimValue" class="muted"></span>
+              <input id="t_scrim" class="range" type="range" min="0" max="0.9" step="0.05">
+            </label>
+          </div>
+
+          <h3>动效</h3>
+          <div class="toolbar">
+            <label class="check-all"><input id="t_notes" type="checkbox"> 上浮音符</label>
+            <label class="check-all"><input id="t_record" type="checkbox"> 旋转唱片（跟随音乐播放状态）</label>
+          </div>
+
+          <h3>按页覆盖</h3>
+          <p class="muted">只覆盖选中的页面；留空即继承全局值。</p>
+          <div class="toolbar">
+            <select id="t_page" class="field select-narrow"></select>
+            <button id="t_pageSave" class="ghost" type="button">保存此页覆盖</button>
+            <button id="t_pageClear" class="ghost" type="button">清除此页</button>
+          </div>
+          <div class="grid">
+            <label>主色 <input id="t_pageAccent" class="field" type="text" maxlength="7" placeholder="继承"></label>
+            <label>强调色 <input id="t_pageAccent2" class="field" type="text" maxlength="7" placeholder="继承"></label>
+            <label>暗层颜色 <input id="t_pageScrimColor" class="field" type="text" maxlength="7" placeholder="继承"></label>
+            <label>暗层强度 <input id="t_pageScrim" class="field" type="number" min="0" max="0.9" step="0.05" placeholder="继承"></label>
+          </div>
+          <div id="t_pageList" class="list"></div>
+
+          <h3>字体</h3>
+          <div class="grid">
+            <label>标题字体（大标题、大数字）<select id="t_fontDisplay" class="field"></select></label>
+            <label>正文字体（行文案、寄语）<select id="t_fontBody" class="field"></select></label>
+          </div>
+          <div class="toolbar">
+            <label class="ghost file-picker">上传标题字体<input id="t_fontDisplayFile" type="file" accept=".woff2,.woff" hidden></label>
+            <span id="t_fontDisplayState" class="muted"></span>
+            <button id="t_fontDisplayDelete" class="danger" type="button" hidden>删除</button>
+          </div>
+          <div class="toolbar">
+            <label class="ghost file-picker">上传正文字体<input id="t_fontBodyFile" type="file" accept=".woff2,.woff" hidden></label>
+            <span id="t_fontBodyState" class="muted"></span>
+            <button id="t_fontBodyDelete" class="danger" type="button" hidden>删除</button>
+          </div>
+          <p class="muted">自定义字体是全站共享的槽位：替换或删除会影响所有使用「自定义」的主题。建议上传子集化后的 woff2（全量中文字体可达数 MB）。</p>
+
+          <p id="themeMessage" class="msg error" hidden></p>
+          <div class="toolbar">
+            <button class="primary" type="submit">保存主题</button>
+            <button id="themeSavePreviewBtn" class="ghost" type="button">保存并预览</button>
+          </div>
+        </form>
+
+        <div class="card preview-card">
+          <h3>草稿预览</h3>
+          <div id="themePreview" class="preview-stage">
+            <p class="preview-kicker">ANNUAL REPORT</p>
+            <p class="line">今年，我们一起走过</p>
+            <h2 class="huge">姓名示例</h2>
+            <p class="number"><span>365</span><small>天</small></p>
+            <p class="sub">每一天，都算数</p>
+          </div>
+          <p class="muted">这里用当前草稿实时预览，保存后才会影响学员。切换主题会丢弃未保存的修改。</p>
+        </div>
+      </div>
+
+      <h3>真实报告预览</h3>
+      <div class="toolbar">
+        <label class="field-label" for="previewStudent">预览学员</label>
+        <select id="previewStudent" class="field select-narrow"></select>
+        <button id="openRealPreviewBtn" class="primary" type="button">保存并打开真实报告</button>
+      </div>
+      <p class="muted">会打开新窗口，用当前主题渲染所选学员的数据；需要当前浏览器已登录管理面板。</p>
+    </section>
   </main>
 </div>
 
@@ -157,6 +267,7 @@
       <label>年度伙伴<input id="f_partner" class="field" type="text" maxlength="64"></label>
       <label>背景图目录<input id="f_bgDir" class="field" type="text" maxlength="64" placeholder="留空=用学号目录"></label>
       <label>背景音乐<input id="f_bgMusic" class="field" type="text" maxlength="64" placeholder="留空=找与学号同名"></label>
+      <label>主题<select id="f_theme" class="field"></select></label>
     </div>
     <label>部长寄语<textarea id="f_message" class="field" rows="4"></textarea></label>
     <label id="passwordLabel">新密码<input id="f_password" class="field" type="password" autocomplete="new-password" placeholder="留空=不修改密码" maxlength="64"></label>
@@ -174,6 +285,7 @@
     <h2 id="reportTitle">报告预览</h2>
     <div id="reportBody" class="list"></div>
     <div class="toolbar">
+      <button id="realPreviewBtn" class="ghost" type="button">打开真实报告</button>
       <button id="reportClose" class="ghost" type="button">关闭</button>
     </div>
   </div>
@@ -259,6 +371,20 @@
     <div class="toolbar">
       <button class="primary" type="submit">执行</button>
       <button id="mediaBatchCancel" class="ghost" type="button">取消</button>
+    </div>
+  </form>
+</div>
+
+<!-- 应用主题 -->
+<div id="themeAssignOverlay" class="overlay" hidden>
+  <form id="themeAssignForm" class="card editor" novalidate>
+    <h2>应用主题</h2>
+    <p id="themeAssignSummary" class="muted"></p>
+    <label>主题<select id="themeAssignSelect" class="field"></select></label>
+    <p class="muted">选「默认主题」会清除这些成员的单独主题设置。主题配置的修改会立即影响所有使用者；批量应用本身可在 10 秒内撤销。</p>
+    <div class="toolbar">
+      <button class="primary" type="submit">应用</button>
+      <button id="themeAssignCancel" class="ghost" type="button">取消</button>
     </div>
   </form>
 </div>

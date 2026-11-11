@@ -65,7 +65,19 @@ CREATE TABLE students (
   activity_count INTEGER,
   partner TEXT,
   message TEXT,
-  password_hash TEXT NOT NULL
+  password_hash TEXT NOT NULL,
+  bg_dir TEXT,
+  bg_music TEXT,
+  theme TEXT               -- 指向 themes.id；NULL = 使用默认主题
+);
+
+CREATE TABLE themes (
+  id TEXT PRIMARY KEY,     -- 'default' 或 randomUUID
+  name TEXT NOT NULL,
+  config TEXT NOT NULL,    -- 受控 JSON（base/fonts/motion/pages），见 §15
+  is_default INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE sessions (
@@ -75,7 +87,7 @@ CREATE TABLE sessions (
 );
 ```
 
-**老库迁移**：旧字段 `join_days`（整数天）会按「今天往前推 N 天」折算成 `join_date`，之后该列被删除 —— 由 `db.js` 在启动时自动执行，无需手工操作。
+**老库迁移**：旧字段 `join_days`（整数天）会按「今天往前推 N 天」折算成 `join_date`，之后该列被删除 —— 由 `db.js` 在启动时自动执行，无需手工操作。`students.theme` 列与 `themes` 表同样由启动迁移补齐，并在没有默认主题时自动 seed 一条 `default`。
 
 ## 6. API 设计
 
@@ -101,6 +113,7 @@ CREATE TABLE sessions (
 - 登录成功后 `session.regenerate()` 防会话固定攻击；Session 存进 SQLite，重启容器仍有效
 - `/api/report` 返回 camelCase 字段：`name`、`department`、`joinDays`、`volunteerHours`、`activityCount`、`partner`、`message`
 - `/api/report` 还会返回 `backgrounds`（**文件名去掉扩展名 → URL** 的映射，只含磁盘上真实存在的图）和 `music`（音频 URL 或 `null`）。后端只读挂载了 `static/`，直接查文件是否存在，前端因此不需要试探、也不会产生 404
+- `/api/report` 还返回 `theme`：base 颜色/暗层、motion 开关、pages 按页覆盖，以及解析后的 `fonts` URL（带 `?v=`）。主题缺失、被删或 JSON 损坏时一律回落默认主题，绝不让报告 500
 - 防暴力破解：同学号连续失败 5 次锁 10 分钟；同 IP 失败 30 次锁 10 分钟（校园网共用出口，故意放宽）。命中后返回 `429 错误次数过多，请 X 分钟后再试`；计数在进程内存里（`rate-limit.js`），重启容器即清空
 - 改密码接口：要求当前密码正确、新密码 6–64 位且与旧密码不同；成功后删除该学员除当前设备外的所有会话
 
@@ -120,15 +133,19 @@ CREATE TABLE sessions (
   - 登录后自动尝试播放；被浏览器自动播放策略拦下时按钮显示为暂停态，等用户点一下
   - 开关选择记在 `localStorage`（键 `report.bgm`），主动关过就不再自动响；退出登录会停止播放
   - 文件查找：优先 Excel 的「背景音乐」列（写全名最优先，只写基名则按格式优先级），留空时找与学号同名的音频；支持的格式按 **mp3 → m4a → ogg → wav** 排序取第一个
+- 主题：`theme.base` 写到 `#reportScreen` 的 CSS 变量（`--accent` / `--accent-2` / `--scrim-rgb` / `--scrim-alpha`），`theme.pages` 覆盖写到对应 slide 的内联变量；`motion` 切换 `.decor-notes-off` / `.decor-record-off`
+- 字体：主题里的字体 URL 由后端解析并带版本号；前端用 FontFace API 注册 `ReportDisplay` / `ReportBody`，2 秒超时后静默回退系统字体；`.huge` / `.number` 用 `--font-display`，`.line` / `.sub` / `.message` 用 `--font-body`
+- 边缘装饰：`#reportScreen` 内的 `.decor-layer`（内联 SVG 音符 + 唱片，`pointer-events:none`）；唱片只在 `.has-music` 时显示、`is-playing` 时旋转；`prefers-reduced-motion` 下整体隐藏
+- 预览模式：`/index.html?preview=1&student=<学号>&themeId=<主题 id>`，先校验管理员会话，再走 `GET /api/admin/students/:id/report?themeId=`；预览下隐藏改密/退出，不写音乐偏好，**绝不调用 `/api/logout`**（会销毁共用会话）
 - Session 过期或未登录时 `/api/report` 返回 401，前端自动停在登录页；登录失败/网络异常都在表单里显示提示，不用 alert
 
 ## 8. 部署与运维
 
-**Dockerfile 要点**：`node:24-alpine`（Node 20 已 EOL，且 better-sqlite3 13 要求 Node ≥ 22）→ 多阶段构建：builder 阶段 `npm ci --omit=dev --ignore-scripts`，运行阶段只拷贝 `node_modules` 与代码 → `EXPOSE 3000` → `CMD ["node", "server.js"]`
+**Dockerfile 要点**：`node:24.22.1-alpine`（2026-10-21 安全更新修复了 Brotli 越界写入等 4 个高危 CVE，基础镜像从浮动 `node:24-alpine` 改为固定版本；Node 20 已 EOL，且 better-sqlite3 13 要求 Node ≥ 22）→ 多阶段构建：builder 阶段 `npm ci --omit=dev --ignore-scripts`，运行阶段只拷贝 `node_modules` 与代码 → `EXPOSE 3000` → `CMD ["node", "server.js"]`
 
 **docker-compose 要点**：
 
-- `app` 服务不映射端口到宿主机，仅由 Nginx 经内部网络转发（更安全）；数据库卷 `sqlite_data` → `/app/data`（`DB_PATH=/app/data/report.db`），`./import` → `/app/import` 供导入脚本读 Excel，`./static` → `/app/static`（**可写**：管理面板要上传图片/音乐，nginx 侧仍是只读）
+- `app` 服务不映射端口到宿主机，仅由 Nginx 经内部网络转发（更安全）；数据库卷 `sqlite_data` → `/app/data`（`DB_PATH=/app/data/report.db`），`./import` → `/app/import` 供导入脚本读 Excel，`./static` → `/app/static`（**可写**：管理面板要上传图片/音乐/字体，nginx 侧仍是只读）
 - 上传的文件属主是 root（app 容器以 root 运行）。宿主机上的 debian 用户想原地覆盖这些文件会 EACCES，需要先删或 `mv`，也可以 `sudo chown -R debian:debian static/images static/music`
 - `nginx` 服务映射 `${HTTP_PORT}:80`，挂载 `nginx/default.conf` 与 `./static`（`ro`），`depends_on` app 的健康检查
 - 服务间通过自定义 bridge 网络 `report-network` 通信，Nginx 中 `proxy_pass http://app:3000`
@@ -139,6 +156,7 @@ CREATE TABLE sessions (
 - 静态托管 + `/api/` 反代（`proxy_read_timeout 300s`，批量导入逐行算 bcrypt 可能超过默认 60s）
 - **不做 SPA 回退**：`try_files $uri $uri/ =404`。本项目没有客户端路由，回退会把「路径写错/文件漏传」伪装成 200 的 HTML（浏览器拿到 HTML 当 JS 解析，报的却是语法错误）
 - `/admin` 与 `/admin/` 都 301 到 `/admin.html`（带尾斜杠时不加规则会回落到学员首页）；面板三个文件加 `Cache-Control: no-cache`
+- `/fonts/` 与 `/images/` 同策略：30 天缓存 + `include` 安全头片段。nginx 自带 `mime.types` 已含 woff/woff2，不需要额外 `types` 块
 - `keepalive_timeout 300s`：默认 65 秒偏短，手机端隔一会儿再操作时，复用连接的首个请求会撞上刚关闭的连接（前端有自动重试兜底，这里再放宽）
 - `client_max_body_size 8m` + `error_page 413` 返回 JSON：与后端 5MB/8MB 上限对齐，超限文件不必先完整上传再被应用拒绝
 - 安全响应头集中在 `nginx/snippets/security-headers.conf`（nosniff、X-Frame-Options、Referrer-Policy、CSP：`script-src 'self'`，因为页面没有任何内联脚本）。**注意 nginx 的规则：location 里一旦自己写了 `add_header` 就不再继承上层，所以自带 `add_header` 的 location 都要 `include` 一次这个片段**
@@ -199,7 +217,7 @@ CREATE TABLE sessions (
 | 改了 nginx 配置 | `docker compose exec nginx nginx -s reload`（配置以目录形式挂载，改完 reload 即生效；若改了挂载本身才需要 `docker compose up -d nginx`） |
 | 重新构建镜像 | `docker compose up -d --build`（构建走宿主机网络，约十几秒） |
 
-**文件对应关系**：`docker-compose.yml`（服务编排）→ `nginx/default.conf`（以目录形式挂载为 `/etc/nginx/conf.d`）→ `static/`（挂载为 `/usr/share/nginx/html`，含登录页与报告页、`vendor/` 本地化前端库、`images/` 背景图、`music/` 背景音乐）→ `server.js`（app 入口）+ `db.js`（建库建表）+ `session-store.js`（会话存储）+ `rate-limit.js`（登录失败限流）+ `scripts/import-excel.js`（Excel 导入）。
+**文件对应关系**：`docker-compose.yml`（服务编排）→ `nginx/default.conf`（以目录形式挂载为 `/etc/nginx/conf.d`）→ `static/`（挂载为 `/usr/share/nginx/html`，含登录页与报告页、`vendor/` 本地化前端库、`images/` 背景图、`music/` 背景音乐、`fonts/presets/` 预置字体与 `fonts/custom/` 上传字体）→ `server.js`（app 入口）+ `db.js`（建库建表）+ `session-store.js`（会话存储）+ `rate-limit.js`（登录失败限流）+ `lib/themes.js`（主题校验与解析）+ `scripts/import-excel.js`（Excel 导入）。
 
 ## 12. 后端现状与 Excel 导入
 
@@ -226,6 +244,8 @@ docker compose exec app node scripts/import-excel.js import/学员数据.xlsx
 - 留空且是新学员 → **用「学号后六位」作初始密码**（如 2021003 → `021003`），导入结束会提示有多少人用了初始密码
 
 运行结束会打印「成功 N 条，跳过 M 条」。
+
+**主题不受导入影响**：主题不进入 Excel/文本导入的字段顺序（加列会破坏按列粘贴），导入或编辑时未提供主题会沿用库里的值；因此「导出 → 再导入」不会清空成员已分配的主题。
 
 **学员专属的背景图与背景音乐**（都以 Excel 为准，重新导入时留空即回到默认）：
 
@@ -265,7 +285,7 @@ docker compose exec -T app node scripts/set-admin.js admin --delete # 删除
 
 用户名限字母/数字/下划线/点/短横线（1–32 位），密码 8–64 位；改密或删号会立刻注销该管理员的已登录会话。
 
-**面板功能**：成员列表搜索/编辑/删除、**勾选成员批量操作**（全选、跨搜索保留选择，可批量改某个字段、把密码重置为学号后六位、**批量媒体操作**、**导出所选**、批量删除）、单条新增、粘贴文本批量添加（每行一名学员，字段顺序同 Excel，逗号或 Tab 分隔，字段内含逗号用双引号包裹，一行即单条、多行即多条）、Excel 导入（预览 → 确认）、Excel 导出、背景图与背景音乐的上传/替换/删除/指派、**媒体文件批量上传**（见下方命名规则）。所有写操作都先预览或二次确认；删除与批量修改类的操作，成功提示上会带「撤销」按钮，可一键还原（含被删掉的原密码）。
+**面板功能**：成员列表搜索/编辑/删除、**勾选成员批量操作**（全选、跨搜索保留选择，可批量改某个字段、把密码重置为学号后六位、**批量媒体操作**、**批量应用主题**、**导出所选**、批量删除）、单条新增、粘贴文本批量添加（每行一名学员，字段顺序同 Excel，逗号或 Tab 分隔，字段内含逗号用双引号包裹，一行即单条、多行即多条）、Excel 导入（预览 → 确认）、Excel 导出、背景图与背景音乐的上传/替换/删除/指派、**媒体文件批量上传**（见下方命名规则）、**「外观」页签**（主题 CRUD、颜色/暗层/字体/动效、按页覆盖、草稿预览、真实报告预览、字体槽位上传）。所有写操作都先预览或二次确认；删除与批量修改类的操作，成功提示上会带「撤销」按钮，可一键还原（含被删掉的原密码）。
 
 **批量媒体操作**（勾选成员后点「批量媒体」）：指派背景音乐（或清空回到「与学号同名」）、设置背景图目录（留空=回到学号目录）、把同一张图上传进每名学员各自实际使用的图目录、删除这些学员在某槽位的专属图（回落到共享图）。上传与删除会逐个学员顺序执行并显示进度，没有专属图的学员自动跳过。
 
@@ -288,17 +308,20 @@ docker compose exec -T app node scripts/set-admin.js admin --delete # 删除
 | `GET /meta` | 下发中文表头、7 个图片槽位、大小上限、扩展名白名单、`media.writable`（诊断挂载是否可写） |
 | `GET /students?q=&limit=` | 成员列表（不含 password_hash），搜索用 `instr()` |
 | `POST /students` / `PUT /students/:studentId` / `DELETE /students/:studentId` | 新增 / 局部更新（只改提交的字段；`password` 缺省=不改，改了会踢掉该学员其他设备）/ 删除（并清其会话） |
-| `POST /students/batch` | 批量修改：`set` 指定要改的字段（限部门/入会日期/志愿时长/活动次数/年度伙伴/部长寄语/背景图目录/背景音乐），或 `resetPasswordToDefault:true` 把密码批量重置为「学号后六位」；一次最多 500 人，重置密码会注销这些学员的会话 |
+| `POST /students/batch` | 批量修改：`set` 指定要改的字段（限部门/入会日期/志愿时长/活动次数/年度伙伴/部长寄语/背景图目录/背景音乐/**主题**），或 `resetPasswordToDefault:true` 把密码批量重置为「学号后六位」；一次最多 500 人，重置密码会注销这些学员的会话 |
 | `POST /students/batch-delete` | 批量删除（连带清会话） |
 | `POST /students/undo` | 撤销上一次改动：用删除/批量/编辑响应里返回的 `undo.token` 还原改动前的成员记录（令牌一次性使用） |
-| `GET /students/:studentId/report` | 预览该学员会看到的报告与资源解析结果（排查图片/音乐是否配对） |
+| `GET /students/:studentId/report?themeId=` | 预览该学员会看到的报告与资源解析结果（含主题与字体；`themeId` 可覆盖学员已分配的主题） |
+| `GET /themes`、`POST /themes`、`PUT /themes/:id`、`DELETE /themes/:id` | 主题列表（含使用人数）/ 新建 / 更新 / 删除（默认主题 → 400，仍被使用 → 409） |
+| `POST /themes/:id/default`、`POST /themes/:id/duplicate` | 设为默认 / 复制主题 |
+| `GET /themes/fonts` | 预置字体列表 + 自定义字体两个槽位状态（**必须注册在 `/themes/:id` 之前**，否则会被当成主题 id） |
 | `POST /import/text/preview`、`POST /import/text` | 文本批量：预览 / 执行（幂等，重复提交无害） |
 | `POST /import/xlsx/preview`、`POST /import/xlsx` | Excel 批量：预览 / 执行（原始字节 + `X-File-Name` 头，不使用 multipart） |
 | `GET /export/xlsx`、`GET /export/template.xlsx` | 导出全部成员（密码列必然为空）/ 下载导入模板 |
 | `POST /export/xlsx` | 只导出勾选的成员（body `{studentIds}`，返回 xlsx 二进制，响应头带 `X-Exported-Count`）|
 | `GET /media` | 媒体全景：共享图、各学员专属图、音乐，含「谁在用」与「未生效的同名文件」 |
-| `POST /media/upload?kind=&dir=&name=&overwrite=` | 上传/替换（`dir` 为空=共享图，非空=写入该学员目录并自动建目录） |
-| `DELETE /media?kind=&dir=&name=` | 删除文件（顺带回收空目录） |
+| `POST /media/upload?kind=&dir=&name=&overwrite=` | 上传/替换（`dir` 为空=共享图，非空=写入该学员目录并自动建目录；`kind=font` 时 `dir` 必须为空、`name` 只限 `display`/`body`、校验 woff magic、单文件 8MB） |
+| `DELETE /media?kind=&dir=&name=` | 删除文件（顺带回收空目录；`kind=font` 同样只允许两个槽位） |
 
 **面板里的提示与确认**：不用浏览器的原生 `confirm/alert/prompt`（样式与深色主题不一致、手机上还很丑），统一走页面内组件。**操作成功/信息类**反馈用右下角轻提示（`#toastBox` + `toast()`：默认 4.5 秒自动消失、多条会堆叠、遮蔽类警告 7 秒、带「撤销」的停留 10 秒）。提示内部是「文字 + 撤销 + 小叉」一行排布：**提示本身不响应点击**（避免误触把撤销一起关掉），要关只能点右侧的小叉。**错误与参数校验**仍用对话框（需要管理员看清并确认）。对话框是 `#dialogOverlay` + `confirmDialog / alertDialog / promptDialog` 三个 Promise 封装；危险操作（删除成员、批量删除、删除文件、删除专属图）的确认按钮是红色，标题与按钮文案按场景区分；点空白处或按 Esc 等于取消。
 
@@ -313,6 +336,48 @@ docker compose exec -T app node scripts/set-admin.js admin --delete # 删除
 - 管理员与学员共用同一个会话 cookie：`POST /api/admin/logout` 只退管理面板；学员端的 `POST /api/logout` 会销毁整个会话（连管理面板一起退）
 - 撤销靠 `lib/undo-buffer.js`：改动前把成员的整行记录（含 `password_hash`）快照进内存并返回一次性 token；`POST /students/undo` 取出即作废，15 分钟过期或超出 20 条自动丢弃，重启容器清空。删除成员 / 批量删除 / 批量修改 / 单条编辑都会返回 `undo`；**媒体文件的删除不支持撤销**（文件本身没留底）
 - 批量媒体操作不需要新接口：指派音乐/目录走 `POST /students/batch`，上传/删除走既有的媒体接口，前端逐个学员顺序执行；上传时必须写进该学员**实际读取的目录**（显式指定过 `bgDir` 时不是学号目录）
+- 主题配置只走 `lib/themes.js` 校验：颜色 `#RRGGBB`、暗层 0–0.9、字体值必须是「null / 现存预设 id / custom」、pages 键限 7 个槽位；未知字段剔除，非法值 400，**不接受自由 CSS**
+- `students.theme` 的写入要同时改三处：`UPSERT_SQL` 的列清单与 `DO UPDATE SET`、`planRecords` 的「未提供则继承」。少任何一处都会导致导入/编辑清空已分配主题，或撤销恢复时丢主题
+- 主题不进 `records.HEADERS` 与导出列（加列会破坏文本按位置粘贴）；批量赋主题走 `POST /students/batch` 的 `set.theme`（空字符串 = 回到默认主题），可撤销
+- 主题配置的修改即时生效且**不在撤销快照内**；删除主题时默认主题 → 400、仍被成员引用 → 409
+- 字体：`static/fonts/presets/`（5 款 OFL 子集字体 + licenses + charset）入库，`static/fonts/custom/` 被 gitignore；上传后同槽位其他扩展名自动删除；自定义字体是全站共享槽位，替换/删除影响所有引用 `custom` 的主题
+- 预览窗口与学员登录共用 cookie：预览模式**不得调用 `/api/logout`**、不得写音乐偏好；非管理员带预览参数访问时回落到登录页
 - `/api` 响应一律带 `Cache-Control: no-store`（里面有学员个人信息，别留在浏览器磁盘缓存里）；`OPTIONS` 统一返回 404（不做 CORS，也不需要预检；Express 默认会给已注册路径回 200 + Allow，等于未鉴权就能探出有哪些管理接口）
 - **方法不匹配一律 404 而非 405**：`/api/*` 的约定是「没匹配到就回 JSON 404」，这是有意的简化，没有外部 API 调用方
 - 性能基线（外部审计实测）：约 400 rps，并发 25 以上延迟上升但不报错；几十人规模余量充足。真要扩容的方向是给 Node 开多实例（cluster / pm2）+ nginx 负载与静态缓存，而不是优化业务代码
+
+## 15. 外观 / 主题子系统
+
+**配置形状**（存 `themes.config` JSON）：
+
+```json
+{
+  "base": { "accent": "#7dd3fc", "accent2": "#bcd6ff", "scrim": 0.45, "scrimColor": "#060a14" },
+  "fonts": { "display": null, "body": null },
+  "motion": { "notes": true, "record": true },
+  "pages": { "02-days": { "accent": "#34d399", "scrim": 0.6 } }
+}
+```
+
+- `fonts` 取值：`null`（系统字体）| 预置 id | `'custom'`（管理员上传的槽位）
+- `pages` 键限 `media.PAGE_KEYS` 的 7 个槽位，覆盖项限 accent/accent2/scrim/scrimColor
+- 校验唯一来源 `lib/themes.js`；`/api/report` 与管理端预览接口都用 `resolveForReport` 解析，主题不存在/JSON 损坏时回落默认主题
+
+**字体资源**：
+
+- 预置：`static/fonts/presets/*.woff2` —— 得意黑、霞鹜文楷、思源黑体、站酷快乐体、马善政毛笔楷书，单文件约 440KB–1.7MB，**提交入库**；`licenses/` 放 OFL 原文，`README.md` 写来源与再生成方法，`charset.txt` 是子集字表
+- 子集：ASCII + 常用标点 + GB2312 一级汉字（3755）+ `static/` 中文文案，约 4200 字；生僻字逐字回退系统字体；可变字体先实例化到 wght=400；子集后改内部族名（OFL 的 RFN 要求）
+- 自定义：`static/fonts/custom/display.(woff2|woff)`、`body.(woff2|woff)`，**不入库**；单文件 8MB，校验 `wOF2`/`wOFF` magic，同槽位只留一个扩展名
+- 重新生成：`PYTHONPATH=<fontlibs> python3 scripts/subset-font-presets.py --source <源字体目录>`（需要 fonttools + brotli）
+
+**接口**：见 §14 表格（`/themes*`、`media?kind=font`、预览接口的 `themeId`）。
+
+**面板**：「外观」页签 = 主题列表 + 编辑器（颜色/暗层/动效/按页覆盖/字体槽位）+ 草稿迷你预览 + 真实报告预览；成员批量条「应用主题」；单条编辑弹层有主题下拉。
+
+**约束**：
+
+- 主题配置修改立即影响所有使用者，且不在撤销快照内；批量赋主题可撤销
+- 导入/编辑未提供主题时继承库里的值；主题不进 Excel/导出列
+- 登录页、修改密码页、管理面板本身不套主题
+- `/themes/fonts` 路由必须先于 `/themes/:id`（否则 fonts 会被当成主题 id）
+- 预览模式与学员登录共用 cookie：不得调用 `/api/logout`，不得写音乐偏好

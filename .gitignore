@@ -29,6 +29,9 @@ static/images/
 static/music/
 images/
 
+# 管理员上传的自定义字体；预置字体（static/fonts/presets/）需要入库
+static/fonts/custom/
+
 # 日志
 logs/
 *.log

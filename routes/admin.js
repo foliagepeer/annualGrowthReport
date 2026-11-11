@@ -4,13 +4,16 @@ const fs = require('fs');
 const path = require('path');
 const records = require('../lib/student-records');
 const media = require('../lib/media');
+const themes = require('../lib/themes');
 const { AttemptLimiter } = require('../rate-limit');
 const { UndoBuffer } = require('../lib/undo-buffer');
 
 const ADMIN_SESSION_MS = 12 * 60 * 60 * 1000; // 管理员会话 12 小时，比学员的 7 天短
 const JSON_LIMIT = '2mb'; // 全局 express.json() 默认只有 100kb，几百人的批量文本会被 413
 const UPLOAD_LIMIT = '10mb';
-const KIND_LIMITS = { image: 5 * 1024 * 1024, music: 8 * 1024 * 1024 };
+const KIND_LIMITS = { image: 5 * 1024 * 1024, music: 8 * 1024 * 1024, font: 8 * 1024 * 1024 };
+const KIND_LABELS = { image: '图片', music: '音乐', font: '字体' };
+const FONT_SLOTS = ['display', 'body'];
 const LIST_LIMIT_MAX = 200;
 const PREVIEW_ITEMS_MAX = 300;
 
@@ -28,6 +31,7 @@ const FIELD_TO_HEADER = {
   message: '部长寄语',
   bgDir: '背景图目录',
   bgMusic: '背景音乐',
+  theme: '主题',
   password: '密码',
 };
 
@@ -44,6 +48,7 @@ function toStudentDto(row) {
     message: row.message,
     bgDir: row.bg_dir,
     bgMusic: row.bg_music,
+    theme: row.theme,
   };
 }
 
@@ -154,13 +159,96 @@ module.exports = function createAdminRouter({ db }) {
     };
     const imageRoot = media.mediaRoot('image').root;
     const musicRoot = media.mediaRoot('music').root;
+    const fontRoot = media.mediaRoot('font').root;
+    try {
+      fs.mkdirSync(fontRoot, { recursive: true });
+    } catch {
+      // 只读挂载时创建失败，由下面的 writable 统一报出来
+    }
     res.json({
       headers: records.HEADERS,
       pageKeys: media.PAGE_KEYS,
-      limits: { image: KIND_LIMITS.image, music: KIND_LIMITS.music, rows: records.MAX_ROWS },
-      extensions: { image: media.IMAGE_EXTENSIONS, music: media.AUDIO_EXTENSIONS },
-      media: { imageRoot, musicRoot, writable: canWrite(imageRoot) && canWrite(musicRoot) },
+      limits: { image: KIND_LIMITS.image, music: KIND_LIMITS.music, font: KIND_LIMITS.font, rows: records.MAX_ROWS },
+      extensions: { image: media.IMAGE_EXTENSIONS, music: media.AUDIO_EXTENSIONS, font: media.FONT_EXTENSIONS },
+      fontPresets: media.listFontPresets(),
+      features: { theme: true },
+      media: {
+        imageRoot,
+        musicRoot,
+        fontRoot,
+        writable: canWrite(imageRoot) && canWrite(musicRoot) && canWrite(fontRoot),
+      },
     });
+  });
+
+  /* ---------- 主题（外观） ---------- */
+
+  router.get('/themes', requireAdmin, (req, res) => {
+    res.json({ items: themes.listThemes(db) });
+  });
+
+  // 必须放在 /themes/:id 之前，否则 fonts 会被当成一个主题 id
+  router.get('/themes/fonts', requireAdmin, (req, res) => {
+    const custom = media.listEntries('font', null);
+    res.json({
+      presets: media.listFontPresets(),
+      custom: {
+        display: custom.find(entry => entry.key === 'display') || null,
+        body: custom.find(entry => entry.key === 'body') || null,
+      },
+      extensions: media.FONT_EXTENSIONS,
+      limit: KIND_LIMITS.font,
+    });
+  });
+
+  router.post('/themes', requireAdmin, jsonBody, (req, res) => {
+    const name = themes.normalizeName(req.body && req.body.name);
+    if (!name) return res.status(400).json({ error: '主题名称需为 1–32 个字符' });
+    const checked = themes.validateConfig(req.body && req.body.config);
+    if (checked.error) return res.status(400).json({ error: checked.error });
+    res.status(201).json({ theme: themes.createTheme(db, name, checked.config) });
+  });
+
+  router.put('/themes/:id', requireAdmin, jsonBody, (req, res) => {
+    const existing = themes.getThemeRow(db, req.params.id);
+    if (!existing) return res.status(404).json({ error: '主题不存在' });
+    const body = req.body || {};
+    const name = body.name === undefined ? existing.name : themes.normalizeName(body.name);
+    if (!name) return res.status(400).json({ error: '主题名称需为 1–32 个字符' });
+
+    let config;
+    if (body.config === undefined) {
+      config = themes.getTheme(db, req.params.id).config;
+    } else {
+      const checked = themes.validateConfig(body.config);
+      if (checked.error) return res.status(400).json({ error: checked.error });
+      config = checked.config;
+    }
+    res.json({ theme: themes.updateTheme(db, req.params.id, name, config) });
+  });
+
+  router.post('/themes/:id/default', requireAdmin, (req, res) => {
+    if (!themes.getThemeRow(db, req.params.id)) return res.status(404).json({ error: '主题不存在' });
+    themes.setDefault(db, req.params.id);
+    res.json({ success: true });
+  });
+
+  router.post('/themes/:id/duplicate', requireAdmin, jsonBody, (req, res) => {
+    const existing = themes.getTheme(db, req.params.id);
+    if (!existing) return res.status(404).json({ error: '主题不存在' });
+    const wanted = (req.body && req.body.name) || `${existing.name} 副本`;
+    const name = themes.normalizeName(wanted) || '副本';
+    res.status(201).json({ theme: themes.duplicateTheme(db, req.params.id, name) });
+  });
+
+  router.delete('/themes/:id', requireAdmin, (req, res) => {
+    const result = themes.deleteTheme(db, req.params.id);
+    if (result.error === 'not_found') return res.status(404).json({ error: '主题不存在' });
+    if (result.error === 'default') return res.status(400).json({ error: '默认主题不能删除，请先把其他主题设为默认' });
+    if (result.error === 'in_use') {
+      return res.status(409).json({ error: `还有 ${result.usage} 名成员在使用这个主题，请先给他们更换主题` });
+    }
+    res.json({ success: true });
   });
 
   /* ---------- 成员列表与增删改 ---------- */
@@ -224,6 +312,7 @@ module.exports = function createAdminRouter({ db }) {
         message: existing.message,
         bgDir: existing.bg_dir,
         bgMusic: existing.bg_music,
+        theme: existing.theme,
         password: '',
       };
       for (const key of Object.keys(FIELD_TO_HEADER)) {
@@ -277,7 +366,7 @@ module.exports = function createAdminRouter({ db }) {
 
   const BATCH_LIMIT = 500;
   // 允许批量设置的字段（学号/姓名/密码不能批量改，密码走独立的「重置」）
-  const BATCH_FIELDS = ['department', 'joinDate', 'volunteerHours', 'activityCount', 'partner', 'message', 'bgDir', 'bgMusic'];
+  const BATCH_FIELDS = ['department', 'joinDate', 'volunteerHours', 'activityCount', 'partner', 'message', 'bgDir', 'bgMusic', 'theme'];
 
   function readBatchIds(body) {
     const list = Array.isArray(body && body.studentIds) ? body.studentIds : [];
@@ -372,10 +461,12 @@ module.exports = function createAdminRouter({ db }) {
     res.json({ success: true, deleted, sessionsRemoved, skipped, undo: undos.remember('批量删除', before) });
   });
 
-  // 预览某个学员看到的报告（含解析后的背景图与音乐），用于排查资源是否配对
+  // 预览某个学员看到的报告（含解析后的背景图、音乐与主题），用于排查资源是否配对
   router.get('/students/:studentId/report', requireAdmin, (req, res) => {
     const row = findStudent.get(req.params.studentId);
     if (!row) return res.status(404).json({ error: '成员不存在' });
+    const themeId = req.query.themeId ? String(req.query.themeId) : row.theme;
+    const theme = themes.resolveForReport(db, themeId);
     res.json({
       studentId: row.student_id,
       name: row.name,
@@ -390,6 +481,8 @@ module.exports = function createAdminRouter({ db }) {
       bgMusic: row.bg_music,
       backgrounds: media.buildBackgroundMap(row.student_id, row.bg_dir),
       music: media.resolveMusicUrl(row.student_id, row.bg_music),
+      themeId: theme.id,
+      theme,
     });
   });
 
@@ -569,18 +662,26 @@ module.exports = function createAdminRouter({ db }) {
   router.post('/media/upload', requireAdmin, rawBody, (req, res, next) => {
     try {
       const kind = String(req.query.kind || '');
-      if (!['image', 'music'].includes(kind)) return res.status(400).json({ error: '资源类型只能是 image 或 music' });
+      if (!['image', 'music', 'font'].includes(kind)) return res.status(400).json({ error: '资源类型只能是 image、music 或 font' });
       if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ error: '没有收到文件内容' });
       if (req.body.length > KIND_LIMITS[kind]) {
         const mb = Math.round(KIND_LIMITS[kind] / 1024 / 1024);
-        return res.status(413).json({ error: `文件太大，${kind === 'image' ? '图片' : '音乐'}不能超过 ${mb}MB` });
+        return res.status(413).json({ error: `文件太大，${KIND_LABELS[kind]}不能超过 ${mb}MB` });
       }
 
       const dir = String(req.query.dir || '').trim();
-      if (kind === 'music' && dir) return res.status(400).json({ error: '背景音乐不支持子目录' });
+      if (kind !== 'image' && dir) {
+        return res.status(400).json({ error: kind === 'music' ? '背景音乐不支持子目录' : '字体不支持子目录' });
+      }
 
       const wanted = String(req.query.name || '').trim() || decodeHeaderName(req);
       if (!media.isSafeSegment(wanted)) return res.status(400).json({ error: '文件名不合法（不能包含斜杠、.. 等字符）' });
+
+      const slot = path.parse(wanted).name;
+      if (kind === 'font') {
+        if (!FONT_SLOTS.includes(slot)) return res.status(400).json({ error: '字体槽位只能是 display 或 body' });
+        if (!media.isWoffBuffer(req.body)) return res.status(400).json({ error: '不是有效的 woff/woff2 字体文件' });
+      }
 
       let target;
       try {
@@ -595,6 +696,16 @@ module.exports = function createAdminRouter({ db }) {
       }
 
       media.atomicWrite(target, req.body);
+
+      // 槽位语义：一个槽位只留一个文件，传新格式时把同名的旧格式清掉
+      if (kind === 'font') {
+        const { root } = media.mediaRoot('font');
+        for (const ext of media.FONT_EXTENSIONS) {
+          if (ext === path.extname(wanted).toLowerCase()) continue;
+          const other = path.join(root, slot + ext);
+          if (fs.existsSync(other)) fs.unlinkSync(other);
+        }
+      }
 
       const entries = media.listEntries(kind, dir);
       const saved = entries.find(entry => entry.name === wanted) || null;
@@ -613,12 +724,17 @@ module.exports = function createAdminRouter({ db }) {
 
   router.delete('/media', requireAdmin, (req, res) => {
     const kind = String(req.query.kind || '');
-    if (!['image', 'music'].includes(kind)) return res.status(400).json({ error: '资源类型只能是 image 或 music' });
+    if (!['image', 'music', 'font'].includes(kind)) return res.status(400).json({ error: '资源类型只能是 image、music 或 font' });
 
     const dir = String(req.query.dir || '').trim();
     const name = String(req.query.name || '').trim();
-    if (kind === 'music' && dir) return res.status(400).json({ error: '背景音乐不支持子目录' });
+    if (kind !== 'image' && dir) {
+      return res.status(400).json({ error: kind === 'music' ? '背景音乐不支持子目录' : '字体不支持子目录' });
+    }
     if (!media.isSafeSegment(name)) return res.status(400).json({ error: '文件名不合法（不能包含斜杠、.. 等字符）' });
+    if (kind === 'font' && !FONT_SLOTS.includes(path.parse(name).name)) {
+      return res.status(400).json({ error: '字体槽位只能是 display 或 body' });
+    }
 
     let target;
     try {

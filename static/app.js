@@ -26,9 +26,13 @@ const studentIdInput = document.querySelector('#studentId');
 const passwordInput = document.querySelector('#password');
 const bgm = document.querySelector('#bgm');
 const musicToggle = document.querySelector('#musicToggle');
+const previewBadge = document.querySelector('#previewBadge');
+
+const FONT_FALLBACK = 'system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
 
 let swiper = null;
 let reportData = null;
+let previewMode = false;
 
 // 手机端常见的一类失败：复用中的 keep-alive 连接刚好被服务端关闭，
 // 请求发到已关闭的 socket 上会直接抛 TypeError（Failed to fetch），
@@ -142,6 +146,67 @@ function applyBackgrounds(backgrounds) {
   });
 }
 
+/* ---------- 主题与字体 ---------- */
+
+function hexToRgb(hex) {
+  const matched = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!matched) return null;
+  const value = parseInt(matched[1], 16);
+  return `${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}`;
+}
+
+function applyTheme(theme) {
+  const base = (theme && theme.base) || {};
+  if (base.accent) reportScreen.style.setProperty('--accent', base.accent);
+  if (base.accent2) reportScreen.style.setProperty('--accent-2', base.accent2);
+  const scrimRgb = hexToRgb(base.scrimColor);
+  if (scrimRgb) reportScreen.style.setProperty('--scrim-rgb', scrimRgb);
+  if (typeof base.scrim === 'number') reportScreen.style.setProperty('--scrim-alpha', String(base.scrim));
+
+  const motion = (theme && theme.motion) || {};
+  reportScreen.classList.toggle('decor-notes-off', motion.notes === false);
+  reportScreen.classList.toggle('decor-record-off', motion.record === false);
+
+  const pages = (theme && theme.pages) || {};
+  document.querySelectorAll('.page[data-bg]').forEach((page) => {
+    const override = pages[page.dataset.bg] || {};
+    const values = {
+      '--accent': override.accent || '',
+      '--accent-2': override.accent2 || '',
+      '--scrim-rgb': hexToRgb(override.scrimColor) || '',
+      '--scrim-alpha': typeof override.scrim === 'number' ? String(override.scrim) : '',
+    };
+    for (const [name, value] of Object.entries(values)) {
+      if (value) page.style.setProperty(name, value);
+      else page.style.removeProperty(name);
+    }
+  });
+}
+
+// 字体只在主题里配置了才加载；失败/超时就保留系统字体栈，绝不阻塞报告
+async function loadFonts(fonts) {
+  if (!fonts || typeof FontFace === 'undefined') return;
+  const slots = [
+    ['display', 'ReportDisplay', '--font-display'],
+    ['body', 'ReportBody', '--font-body'],
+  ];
+  for (const [slot, family, cssVar] of slots) {
+    const url = fonts[slot];
+    if (!url) continue;
+    try {
+      const face = new FontFace(family, `url("${url}")`);
+      await Promise.race([
+        face.load(),
+        new Promise((resolve, reject) => setTimeout(() => reject(new Error('字体加载超时')), 2000)),
+      ]);
+      document.fonts.add(face);
+      reportScreen.style.setProperty(cssVar, `"${family}", ${FONT_FALLBACK}`);
+    } catch {
+      // 静默回退
+    }
+  }
+}
+
 /* ---------- 背景音乐 ---------- */
 
 function musicPreference() {
@@ -162,6 +227,7 @@ function rememberMusicPreference(value) {
 
 function setMusicState(playing) {
   musicToggle.classList.toggle('is-playing', playing);
+  reportScreen.classList.toggle('is-playing', playing);
   musicToggle.setAttribute('aria-label', playing ? '关闭背景音乐' : '播放背景音乐');
 }
 
@@ -176,6 +242,7 @@ function stopMusic() {
 
 function setupMusic(url) {
   musicToggle.hidden = !url;
+  reportScreen.classList.toggle('has-music', Boolean(url));
   if (!url) {
     bgm.removeAttribute('src');
     setMusicState(false);
@@ -183,17 +250,17 @@ function setupMusic(url) {
   }
   if (bgm.getAttribute('src') !== url) bgm.setAttribute('src', url);
   bgm.volume = MUSIC_VOLUME;
-  // 上次是自己关掉的，这次就不要自动响起来
-  if (musicPreference() === 'off') setMusicState(false);
+  // 上次是自己关掉的，这次就不要自动响起来；预览模式不改动真实用户的偏好
+  if (!previewMode && musicPreference() === 'off') setMusicState(false);
   else playMusic();
 }
 
 musicToggle.addEventListener('click', () => {
   if (bgm.paused) {
-    rememberMusicPreference('on');
+    if (!previewMode) rememberMusicPreference('on');
     playMusic();
   } else {
-    rememberMusicPreference('off');
+    if (!previewMode) rememberMusicPreference('off');
     stopMusic();
   }
 });
@@ -235,8 +302,16 @@ function enterReport(data) {
   passwordScreen.hidden = true;
   reportScreen.hidden = false;
   hideLoginError();
+  applyTheme(data.theme);
+  loadFonts(data.theme && data.theme.fonts);
   applyBackgrounds(data.backgrounds);
   setupMusic(data.music);
+
+  if (previewMode) {
+    changePasswordBtn.hidden = true;
+    logoutBtn.hidden = true;
+    previewBadge.hidden = false;
+  }
 
   if (swiper) {
     swiper.slideTo(0, 0);
@@ -328,6 +403,7 @@ loginForm.addEventListener('submit', async (event) => {
 });
 
 logoutBtn.addEventListener('click', async () => {
+  if (previewMode) return; // 预览窗口不能销毁管理员与学员共用的会话
   logoutBtn.disabled = true;
   try {
     await request('/api/logout', { method: 'POST' });
@@ -338,7 +414,9 @@ logoutBtn.addEventListener('click', async () => {
   showLogin('已退出登录');
 });
 
-changePasswordBtn.addEventListener('click', showChangePassword);
+changePasswordBtn.addEventListener('click', () => {
+  if (!previewMode) showChangePassword();
+});
 passwordBack.addEventListener('click', backToReport);
 
 passwordForm.addEventListener('submit', async (event) => {
@@ -376,7 +454,40 @@ passwordForm.addEventListener('submit', async (event) => {
 
 /* ---------- 启动 ---------- */
 
+// 真实报告预览：管理面板用新窗口打开 /index.html?preview=1&student=..&themeId=..
+// 只依赖管理员会话，绝不调用 /api/logout（会连管理面板一起退掉）
+async function startPreview(params) {
+  previewMode = true;
+  try {
+    await request('/api/admin/session');
+  } catch {
+    showLogin('请先在管理面板登录，再打开真实报告预览');
+    return;
+  }
+
+  const studentId = params.get('student') || '';
+  if (!studentId) {
+    showLogin('预览链接缺少学员学号');
+    return;
+  }
+
+  try {
+    const themeId = params.get('themeId') || '';
+    const query = themeId ? `?themeId=${encodeURIComponent(themeId)}` : '';
+    const data = await request(`/api/admin/students/${encodeURIComponent(studentId)}/report${query}`);
+    enterReport(data);
+  } catch (error) {
+    showLogin(`无法打开预览：${error.message}`);
+  }
+}
+
 (async function start() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('preview') === '1') {
+    await startPreview(params);
+    return;
+  }
+
   playAnimations(loginScreen);
   try {
     const data = await request('/api/report');

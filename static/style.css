@@ -3,7 +3,13 @@
   --text-dim: rgba(244, 247, 255, 0.72);
   --text-faint: rgba(244, 247, 255, 0.5);
   --accent: #7dd3fc;
+  --accent-2: #bcd6ff;
   --radius: 14px;
+  /* 主题会覆盖这几个变量；默认值与后端 DEFAULT_THEME 保持一致 */
+  --font-display: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-body: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --scrim-rgb: 6, 10, 20;
+  --scrim-alpha: 0.45;
 }
 
 * {
@@ -167,12 +173,12 @@ body {
   max-width: 420px;
 }
 
-/* 背景图加载成功后的压暗层，保证文字可读 */
+/* 背景图加载成功后的压暗层，保证文字可读；颜色与强度可被主题/单页覆盖 */
 .page.has-bg::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(6, 10, 20, 0.45);
+  background: rgba(var(--scrim-rgb), var(--scrim-alpha));
 }
 
 .page-opening {
@@ -219,12 +225,14 @@ body {
 
 .line {
   margin: 0 0 18px;
+  font-family: var(--font-body);
   font-size: 15px;
   color: var(--text-dim);
 }
 
 .huge {
   margin: 0 0 12px;
+  font-family: var(--font-display);
   font-size: 42px;
   font-weight: 700;
   line-height: 1.25;
@@ -233,6 +241,7 @@ body {
 
 .number {
   margin: 0 0 14px;
+  font-family: var(--font-display);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
@@ -241,7 +250,7 @@ body {
   font-size: 76px;
   font-weight: 800;
   color: #fff;
-  background-image: linear-gradient(180deg, #ffffff 30%, #bcd6ff);
+  background-image: linear-gradient(180deg, #ffffff 30%, var(--accent-2));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -257,12 +266,14 @@ body {
 
 .sub {
   margin: 0;
+  font-family: var(--font-body);
   font-size: 15px;
   color: var(--text-dim);
 }
 
 .message {
   margin: 0;
+  font-family: var(--font-body);
   font-size: 17px;
   line-height: 2;
   text-align: left;
@@ -351,6 +362,87 @@ body {
 @keyframes music-pulse {
   0%, 100% { opacity: 0.75; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.12); }
+}
+
+/* ---------- 页面边缘装饰（音符 / 唱片） ---------- */
+
+.decor-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.decor-layer .note {
+  position: absolute;
+  bottom: -14vh;
+  width: var(--note-size, 18px);
+  height: var(--note-size, 18px);
+  color: var(--accent);
+  opacity: 0;
+  animation: note-rise var(--note-duration, 12s) linear infinite;
+  animation-delay: var(--note-delay, 0s);
+  will-change: transform, opacity;
+}
+
+.decor-layer .note-1 { left: 7%; --note-size: 17px; --note-duration: 12s; --note-delay: -1s; }
+.decor-layer .note-2 { left: 17%; --note-size: 24px; --note-duration: 16s; --note-delay: -7s; }
+.decor-layer .note-3 { right: 10%; --note-size: 20px; --note-duration: 14s; --note-delay: -3s; }
+.decor-layer .note-4 { right: 18%; --note-size: 15px; --note-duration: 18s; --note-delay: -11s; }
+.decor-layer .note-5 { left: 11%; --note-size: 13px; --note-duration: 15s; --note-delay: -9s; }
+.decor-layer .note-6 { right: 6%; --note-size: 21px; --note-duration: 13s; --note-delay: -5s; }
+
+@keyframes note-rise {
+  0% { transform: translate3d(0, 0, 0) rotate(-10deg); opacity: 0; }
+  12% { opacity: 0.5; }
+  55% { transform: translate3d(14px, -58vh, 0) rotate(7deg); opacity: 0.42; }
+  88% { opacity: 0.3; }
+  100% { transform: translate3d(-10px, -118vh, 0) rotate(-5deg); opacity: 0; }
+}
+
+.decor-layer .vinyl {
+  position: absolute;
+  right: 18px;
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  width: 78px;
+  height: 78px;
+  display: none;
+  opacity: 0.5;
+  animation: vinyl-spin 9s linear infinite;
+  animation-play-state: paused;
+}
+
+.decor-layer .vinyl-label { fill: var(--accent); }
+
+/* 唱片只在配置了背景音乐时出现，播放时转、暂停时停 */
+#reportScreen.has-music .decor-layer .vinyl { display: block; }
+#reportScreen.is-playing .decor-layer .vinyl { animation-play-state: running; opacity: 0.62; }
+#reportScreen.decor-notes-off .decor-layer .note { display: none; }
+#reportScreen.decor-record-off .decor-layer .vinyl { display: none; }
+
+@keyframes vinyl-spin {
+  to { transform: rotate(360deg); }
+}
+
+.preview-badge {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top));
+  left: 14px;
+  z-index: 30;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(10, 16, 32, 0.6);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .decor-layer { display: none; }
+  .swipe-hint,
+  .music-toggle.is-playing svg { animation: none; }
 }
 
 /* 翻页指示点 */

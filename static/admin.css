@@ -433,3 +433,113 @@ audio { width: 100%; margin-top: 4px; }
   .batch-bar button { flex: 1; }
   .overlay { padding: 10px; }
 }
+
+/* ---------- 外观 / 主题 ---------- */
+
+.theme-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(240px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.theme-layout .editor { max-width: none; }
+
+.preview-card { position: sticky; top: 12px; }
+
+.preview-stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  padding: 26px 18px;
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.12), transparent 55%),
+    linear-gradient(165deg, #0d1b3e 0%, #16255c 55%, #233a86 100%);
+}
+
+/* 草稿里的暗层颜色/强度直接作用在预览舞台上 */
+.preview-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(var(--scrim-rgb, 6, 10, 20), var(--scrim-alpha, 0.45));
+}
+
+.preview-stage > * { position: relative; z-index: 1; }
+
+/* 主色在报告里作用于音符/唱片；预览里用这一行体现，避免「改主色没反应」 */
+.preview-stage .preview-kicker {
+  margin: 0 0 10px;
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  color: var(--accent, #7dd3fc);
+}
+
+.preview-stage .line {
+  margin: 0 0 10px;
+  font-family: var(--preview-font-body, inherit);
+  font-size: 13px;
+  color: rgba(238, 243, 255, 0.72);
+}
+
+.preview-stage .huge {
+  margin: 0 0 8px;
+  font-family: var(--preview-font-display, inherit);
+  font-size: 30px;
+  line-height: 1.25;
+}
+
+.preview-stage .number {
+  margin: 0 0 8px;
+  font-family: var(--preview-font-display, inherit);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.preview-stage .number span {
+  font-size: 52px;
+  font-weight: 800;
+  background-image: linear-gradient(180deg, #ffffff 30%, var(--accent-2, #bcd6ff));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.preview-stage .number small {
+  margin-left: 6px;
+  font-size: 15px;
+  color: rgba(238, 243, 255, 0.72);
+}
+
+.preview-stage .sub {
+  margin: 0;
+  font-family: var(--preview-font-body, inherit);
+  font-size: 13px;
+  color: rgba(238, 243, 255, 0.72);
+}
+
+.color-row { display: flex; gap: 8px; align-items: center; }
+
+.color-input {
+  flex: 0 0 52px;
+  width: 52px;
+  min-height: var(--control-h);
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--sunken);
+  cursor: pointer;
+}
+
+.range {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.editor h3 { margin: 10px 0 0; font-size: 14px; }
+
+@media (max-width: 860px) {
+  .theme-layout { grid-template-columns: 1fr; }
+  .preview-card { position: static; }
+}

@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const db = require('./db');
 const media = require('./lib/media');
 const records = require('./lib/student-records');
+const themes = require('./lib/themes');
 const createAdminRouter = require('./routes/admin');
 const SQLiteSessionStore = require('./session-store');
 const { AttemptLimiter } = require('./rate-limit');
@@ -55,7 +56,7 @@ app.use(express.json());
 
 const findStudentForLogin = db.prepare('SELECT student_id, password_hash FROM students WHERE student_id = ?');
 const findReport = db.prepare(`
-  SELECT name, department, join_date, volunteer_hours, activity_count, partner, message, bg_dir, bg_music
+  SELECT name, department, join_date, volunteer_hours, activity_count, partner, message, bg_dir, bg_music, theme
   FROM students
   WHERE student_id = ?
 `);
@@ -192,6 +193,7 @@ app.get('/api/report', (req, res) => {
     message: row.message,
     backgrounds: media.buildBackgroundMap(studentId, row.bg_dir),
     music: media.resolveMusicUrl(studentId, row.bg_music),
+    theme: themes.resolveForReport(db, row.theme),
   });
 });
 
