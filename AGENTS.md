@@ -2,7 +2,7 @@
 
 ## 1. 项目概览
 
-手机端「个人年度成长报告」：学号 + 密码登录，查看本人 7 屏回顾（开场 → 加入天数 → 志愿时长 → 活动次数 → 年度伙伴 → 部长寄语 → 结尾），整屏上下翻页；支持每位成员独立背景图/音乐、全站主题（配色/字体/光效）与管理控制台。使用说明见 `docs/使用说明.md`。
+手机端「个人年度成长报告」：学号 + 密码登录，查看本人年度回顾（默认 8 页：封面 → 志愿时长 → 活动足迹 → 活动回忆① → 活动回忆② → 同行伙伴 → 年度关键词 → 部长寄语），整屏上下翻页；页面数量/顺序/启用由「页面注册表」配置；支持每位成员独立背景图/音乐、全站主题（配色/字体/光效）与页面排版。使用说明见 `docs/使用说明.md`。
 
 技术栈：Node 24.22.1-alpine + Express 5 + better-sqlite3 13 + express-session（自写 SQLite Store）+ bcryptjs；前端原生 JS + Swiper 11.2.10 + Animate.css 4.1.1（本地化，不走 CDN）；SheetJS 0.20.3 仅用于导入；Docker Compose 部署，nginx 负责静态托管与 `/api` 反代。
 
@@ -10,22 +10,30 @@
 
 ```sql
 students(student_id PK, name, department, join_date, volunteer_hours, activity_count,
-         partner, message, password_hash, bg_dir, bg_music, theme)
+         activities, activity1_name, activity1_date, activity1_work,
+         activity2_name, activity2_date, activity2_work,
+         partner_count, keyword, keyword_reason, partner, message,
+         password_hash, bg_dir, bg_music, theme)
 themes(id PK, name, config TEXT JSON, is_default, created_at, updated_at)
+pages(key PK, type, title, position, enabled, config TEXT JSON, created_at)
+settings(key PK, value)
 sessions(sid PK, sess, expire)
 admins(username PK, password_hash, created_at, password_changed_at, last_login_at)
 ```
 
-- `students.theme` 指向 `themes.id`，NULL = 使用默认主题；`join_date` 存 `YYYY-MM-DD`，加入天数由 `computeJoinDays()` 实时算，不落库。
-- `db.js` 启动时自动补 `bg_dir/bg_music/join_date/theme` 列；旧 `join_days` 按「今天往前推 N 天」折算成 `join_date` 后删列；没有默认主题时自动 seed `default`。
-- 主题配置形状：`{ base:{accent,accent2,scrim,scrimColor}, fonts:{display,body}, motion:{notes,ambient}, pages:{[pageKey]:{accent?,accent2?,scrim?,scrimColor?}}, layout:{[pageKey]:{elements:[...]}} }`，校验唯一来源 `lib/themes.js`。
+- `students.theme` 指向 `themes.id`，NULL = 使用默认主题；`join_date` 存 `YYYY-MM-DD`（新的 8 页报告不展示加入天数，但数据保留）。
+- `db.js` 启动时自动补 `bg_dir/bg_music/join_date/theme` 与活动/关键词等列（`partner_count` 为 INTEGER）；旧 `join_days` 折算后删列；没有默认主题时 seed `default`；没有页面时 seed 默认 8 页与 `report_year`。
+- `partner` 是旧版「年度伙伴」字段，保留在 UPSERT/撤销里，但不导入/导出/展示；新人数用 `partner_count`（留空按同部门成员数回退）。
+- `settings.login_preface` 存登录页前言（纯文本，最多 500 字，`\n` 保留换行）；未设置时用 `lib/login-copy.js` 的默认文案，存空串表示登录页不显示前言。
+- 主题配置形状：`{ base:{...}, fonts:{display,body}, motion:{notes,ambient}, pages:{[pageKey]:{...}}, layout:{[pageKey]:{elements:[...]}} }`；页面 key 不再硬编码，校验只检查形状（`/^[A-Za-z0-9_-]{1,40}$/`），由 `lib/themes.js` 负责。
 
 ## 3. 成员端接口与行为（`server.js`）
 
 | 接口 | 说明 |
 |---|---|
+| `GET /api/login-copy` | 公开文案，返回 `{preface}`；登录页用它填充标题下方前言（`textContent`，支持换行） |
 | `POST /api/login` | 学号 + 密码；失败统一 `401 学号或密码错误`，不区分学号是否存在；成功后 `session.regenerate()` |
-| `GET /api/report` | 需 Session；返回 `name/department/joinDate/joinDays/volunteerHours/activityCount/partner/message` + `backgrounds`（基名→URL，只含磁盘真实存在的图）+ `music`（URL 或 null）+ `theme`（颜色/动效/按页覆盖 + 解析后的字体 URL，带 `?v=`） |
+| `GET /api/report` | 需 Session；返回 `name/department/joinDate/joinDays/volunteerHours/activityCount`、活动列表/两条活动回忆/`partnerCount`/`partnerLine`/`partnerCaption`/`keyword`/`keywordReason`/`message`、`reportYear`、`pages`（启用顺序的 key/type/title/config）、`backgrounds`（含新 key 的旧图回退）+ `music` + `theme` |
 | `POST /api/password` | 校验旧密码；新密码 6–64 位且不同于旧密码；成功后注销该成员其他设备的会话 |
 | `POST /api/logout` | 销毁成员会话（管理员会话独立，不受影响） |
 
@@ -35,13 +43,16 @@ admins(username PK, password_hash, created_at, password_changed_at, last_login_a
 
 ## 4. 前端实现（`static/`）
 
-登录页 + 7 屏报告 + 修改密码页，文件 `index.html` / `style.css` / `app.js`；管理面板 `admin.html` / `admin.js` / `admin.css`，入口 `/admin.html`。
+登录页 + 动态报告页 + 修改密码页，文件 `index.html` / `style.css` / `app.js`；管理面板 `admin.html` / `admin.js` / `admin.css`，入口 `/admin.html`。
+
+- **动态页面**：`index.html` 只保留空的 `.swiper-wrapper`；`app.js` 的 `buildSlides(pages, data)` 按 `type/config` 生成 7 类模板（封面/数字/活动列表/活动回忆/伙伴/关键词/寄语）；进入时先销毁旧 Swiper 再建新；结尾按钮是静态节点，移到最后一个 slide；`data-bg` 使用页面 key。
+- **登录页前言**：`app.js` 启动时请求 `/api/login-copy`，把 `preface` 用 `textContent` 写入 `#loginPreface`（`white-space: pre-line`）；空串则隐藏；接口失败保留 HTML 默认文案。预览模式不请求。
 
 - **翻页**：Swiper 垂直、`speed: 800`、`mousewheel`、可点击分页；`slideChangeTransitionStart` 触发当前屏动画。
 - **入场动画**：自实现（不用 `swiper.animate`）。元素写 `data-animate="fadeInUp"`（可加 `data-delay` / `data-duration`），进入时移除并重挂 `animate__animated animate__<效果>`，配合 `void offsetWidth` 保证重播。
 - **数字滚动**：`data-count="字段名"`，`requestAnimationFrame` 从 0 滚到目标值（整数 0 位、REAL 1 位）；空值显示破折号。
 - **数据填充**：`data-field="字段名"`，一律 `textContent`；寄语用 `pre-wrap` 保留换行。
-- **背景图**：`data-bg="01-opening"` 等 7 个键；查找顺序 `static/images/<bgDir 或学号>/` → `static/images/`；同名格式优先级 jpg → jpeg → png → webp；有图时自动加暗层（颜色/强度走主题变量）。`static/images/`、`static/music/` 不入库。
+- **背景图**：页面 key（默认 `01-cover`…`08-message`）就是槽位名；查找顺序 `static/images/<bgDir 或学号>/` → `static/images/`；同名格式优先级 jpg → jpeg → png → webp；有图时自动加暗层。个人照片/活动照片/合照都作为对应页背景；旧 key（`01-opening` 等）通过 `media.BACKGROUND_ALIASES` 自动回退。`static/images/`、`static/music/` 不入库。
 - **背景音乐**：右上角圆形开关（播放呼吸、暂停斜杠）；登录后自动尝试播放，被自动播放策略拦下时等用户点；偏好记在 `localStorage['report.bgm']`；查找优先级 mp3 → m4a → ogg → wav，Excel 留空时找与学号同名的文件。
 - **主题**：`base` 写到 `#reportScreen` 的 `--accent` / `--accent-2` / `--accent-rgb` / `--accent-2-rgb` / `--scrim-rgb` / `--scrim-alpha`；`pages` 覆盖写到对应 slide 的内联变量；`motion` 切换 `.decor-notes-off` / `.decor-ambient-off`。
 - **字体**：后端解析 URL 后，前端 FontFace API 注册 `ReportDisplay` / `ReportBody`，2 秒超时静默回退系统字体；`.huge`/`.number` 用 `--font-display`，`.line`/`.sub`/`.message` 用 `--font-body`。
@@ -62,7 +73,7 @@ docker compose exec -T app node scripts/set-admin.js admin --delete
 
 用户名限字母/数字/下划线/点/短横线（1–32 位），密码 8–64 位；改密/删号会立即注销该管理员的会话。
 
-**功能**：成员搜索/编辑/删除；勾选批量操作（批量改字段、重置密码为学号后六位、批量媒体、批量应用主题、导出所选、批量删除）；单条新增；文本批量与 Excel 导入/导出；背景图/音乐/字体上传与指派；「外观」页签（基础样式 + 页面排版：拖拽文字、改字体字号颜色、加文字/图片、占位符、真实预览）。写操作都先确认；删除与批量修改类操作带 10 秒「撤销」。
+**功能**：成员搜索/编辑/删除；勾选批量操作（批量改字段、重置密码为学号后六位、批量媒体、批量应用主题、导出所选、批量删除）；单条新增；文本批量与 Excel 导入/导出；背景图/音乐/字体上传与指派；「外观」页签（基础样式 + 页面排版）；「页面」页签（页面注册表、年度与登录页前言）。写操作都先确认；删除与批量修改类操作带 10 秒「撤销」。
 
 **批量媒体操作**：指派音乐（清空=回到「与学号同名」）、设置背景图目录（留空=学号目录）、把同一张图写入每名成员实际使用的图目录、删除某槽位专属图（回落共享图）；逐个成员顺序执行并显示进度。
 
@@ -70,22 +81,23 @@ docker compose exec -T app node scripts/set-admin.js admin --delete
 
 | 文件名 / 目录 | 归属 | 落盘位置 |
 |---|---|---|
-| `01-opening.jpg` | 全体共享图 | `images/01-opening.jpg` |
-| `2021001-01-opening.jpg` 或 `2021001_01-opening.jpg` | 该成员专属图 | `images/2021001/01-opening.jpg` |
-| 文件夹内 `2021001/01-opening.jpg` | 该成员专属图 | 同上 |
+| `01-cover.jpg` | 全体共享图 | `images/01-cover.jpg` |
+| `2021001-01-cover.jpg` 或 `2021001_01-cover.jpg` | 该成员专属图 | `images/2021001/01-cover.jpg` |
+| 文件夹内 `2021001/01-cover.jpg` | 该成员专属图 | 同上 |
 | `2021001.mp3` | 该成员背景音乐（自动生效） | `music/2021001.mp3` |
 
-无法识别归属、学号不存在、超限的文件会在上传前拦下；同名默认跳过（可勾选覆盖）。批量上传不改数据库，只放文件。
+槽位名就是页面 key；旧版 `01-opening` 等仍识别，并通过 `BACKGROUND_ALIASES` 回退显示。无法识别归属、学号不存在、超限的文件会在上传前拦下；同名默认跳过（可勾选覆盖）。批量上传不改数据库，只放文件。
 
 **接口一览**（均在 `/api/admin`，未登录 `401 {"error":"管理员未登录"}`）：
 
 | 方法 路径 | 作用 |
 |---|---|
 | `POST /login`、`POST /logout`、`GET /session` | 登录（用户名 5 次/15 分钟、IP 10 次/15 分钟）、退出（仅退面板）、查登录态 |
-| `GET /meta` | 表头、7 个图片槽位、大小上限、扩展名、字体预设、`media.writable` |
+| `GET /meta` | 表头、页面注册表（`pages`/`pageKeys`）、年度、登录页前言（`loginCopy`）、大小上限、扩展名、字体预设、`media.writable` |
+| `GET /pages`、`POST /pages`、`PUT /pages/:key`、`DELETE /pages/:key` | 页面注册表列表 / 新增 / 更新（标题/类型/配置/启用）/ 删除；`POST /pages/:key/move` 调整顺序；`PUT /settings` 改年度或登录页前言（`loginPreface`） |
 | `GET /students?q=&limit=` | 成员列表（不含 password_hash），搜索用 `instr()` |
 | `POST /students` / `PUT /students/:id` / `DELETE /students/:id` | 新增 / 局部更新（改了密码会踢其他设备）/ 删除（并清会话） |
-| `POST /students/batch` | 批量修改 `set`（部门/入会日期/志愿时长/活动次数/年度伙伴/部长寄语/背景图目录/背景音乐/主题）或 `resetPasswordToDefault`；最多 500 人 |
+| `POST /students/batch` | 批量修改 `set`（部门/入会日期/志愿时长/活动次数/伙伴人数/年度关键词/关键词依据/部长寄语/背景图目录/背景音乐/主题）或 `resetPasswordToDefault`；最多 500 人 |
 | `POST /students/batch-delete`、`POST /students/undo` | 批量删除、按一次性 token 撤销上一次改动 |
 | `GET /students/:id/report?themeId=` | 预览报告与资源解析（可覆盖主题） |
 | `GET /themes`、`POST /themes`、`PUT /themes/:id`、`DELETE /themes/:id` | 主题列表（含使用人数）/ 新建 / 更新 / 删除（默认或被引用 → 400/409） |
@@ -103,11 +115,12 @@ docker compose exec app node scripts/import-excel.js --template     # 生成模�
 docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 ```
 
-表头：`学号、密码、姓名、部门、入会日期、志愿时长、活动次数、年度伙伴、部长寄语、背景图目录、背景音乐`（后两列可选）。入会日期认 `2024-09-01`、`2024/9/1`、`2024.9.1`、`2024年9月1日`、`20240901`、Excel 日期/序列号；写错逐行报错跳过。
+表头：`学号、密码、姓名、部门、入会日期、志愿时长、活动次数、活动记录、活动一名称/日期/工作、活动二名称/日期/工作、伙伴人数、年度关键词、关键词依据、部长寄语、背景图目录、背景音乐`。入会日期认 `2024-09-01`、`2024/9/1`、`2024.9.1`、`2024年9月1日`、`20240901`、Excel 日期/序列号；写错逐行报错跳过。
 
 密码三规则：填了值 → 重设；留空且已存在 → 保留原密码；留空且新成员 → 用学号后六位。按学号 upsert。
 
 - **主题不受导入影响**：主题不进 Excel/文本字段顺序（防破坏按列粘贴），未提供时继承库里的值；「导出 → 再导入」不会清空主题。
+- **缺列继承**：旧 11 列模板/文本缺少的活动/关键词等新列会沿用库里的原值；新版 20 列留空才会清空。文本导入 11 列按旧表头映射，20 列按新表头映射。
 - 背景图/音乐留空即回到默认规则（学号目录 / 同学号音频）；文件放好即生效，无需重启。
 - 库内测试账号：2021001 张三、2021002 李四（`init123456`），2021003 王五（`021003`）；投放前删除。
 
@@ -141,17 +154,20 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 - **字体**：预设 5 款 OFL 子集字（ASCII + 常用标点 + GB2312 一级字 3755 + 界面文案，约 4200 字；生僻字逐字回退系统字体）入库，重新生成用 `scripts/subset-font-presets.py`（需 fonttools + brotli）；自定义 `fonts/custom/display|body.(woff2|woff)` 不入库，单文件 8MB，一槽一文件。
 - **会话**：管理员与成员使用**独立 cookie**（`report.admin.sid` / `report.sid`），登录/退出互不影响；`/api/admin/logout` 只销毁管理会话，`/api/logout` 只销毁成员会话。预览窗口不得调用 `/api/logout`、不得写音乐偏好；非管理员带预览参数回落登录页。
 - **撤销**：`lib/undo-buffer.js` 内存快照（含密码哈希），15 分钟 / 20 条上限，重启清空；媒体文件删除不可撤销。
+- **页面注册表**：`pages` 表是唯一页面来源（`lib/pages.js`）；`media.PAGE_KEYS` 已移除，`/meta`/`/media`/`/api/report`/主题排版页下拉都从注册表取；页面 key 就是背景槽位名，旧 key 通过 `media.BACKGROUND_ALIASES` 回退；主题 `pages`/`layout` 的 key 只校验形状，不因旧 key 报 400。
+- **照片即页面背景**：封面个人照片、活动回忆照片、伙伴/寄语合照都走 per-member 图片目录（`<key>.jpg`），不是 DB 字段；排版里的 image 元素只用于 `/images/decor/` 装饰图。
+- **动态页面**：`app.js buildSlides` 按页面类型生成 slide；重新登录先 `swiper.destroy(true,false)` 再重建；结尾按钮是静态节点 `#endingActions`，移动到最后一个 slide，不丢事件。
 - **响应约定**：`/api` 全部 `no-store`；`OPTIONS` 与方法不匹配统一 404；错误 JSON `{error}`。
 - **性能**：约 400 rps，并发 25 以上延迟上升但不报错；扩容方向是多实例 + nginx，而不是改业务代码。
 
 ## 9. 验证清单
 
-- 旧库启动：补列、`themes` seed、登录/报告/导入导出/媒体无回归。
-- 接口：`/api/report` 含 backgrounds/music/theme；主题 CRUD、默认/复制、删除保护；`/themes/fonts` 不被 `:id` 吞；字体上传 magic/8MB/覆盖清理；>8MB 413。
-- 数据链路：赋主题 → 编辑 → 文本导入 → Excel 导入 → 删除后撤销，主题不丢；导出再导入不丢。
-- 成员端：7 屏翻页/动画/数字滚动；背景图与暗层；音乐开关与偏好；主题颜色/字体/按页覆盖；音符、光点、切页光圈；`prefers-reduced-motion` 降级；预览模式无改密/退出；有 layout 的页面按设计稿渲染、无 layout 走原版式。
-- 页面排版：拖动/缩放/属性修改/加文字/加图片/从当前样式生成/恢复默认/保存；装饰图上传；占位符替换；结尾按钮保留。
-- 管理端：批量操作与撤销、批量媒体、按文件名归属、外观编辑与真实预览、提示/对话框样式。
+- 旧库启动：补列、`themes`/`pages`/`settings` seed、登录/报告/导入导出/媒体无回归；旧主题不报 400。
+- 接口：`/api/report` 含 pages/新字段/backgrounds/music/theme；页面注册表 CRUD/排序/启停/年度；主题 CRUD、默认/复制、删除保护；`/themes/fonts` 不被 `:id` 吞；字体上传 magic/8MB/覆盖清理；>8MB 413。
+- 数据链路：赋主题 → 编辑 → 文本导入（20 列/旧 11 列）→ Excel 导入 → 删除后撤销，主题与新字段不丢；导出再导入不丢；缺列继承生效。
+- 成员端：8 页动态渲染/翻页/动画/数字滚动；照片背景与暗层；音乐开关；页面注册表顺序/启停；最后一个 slide 的按钮；主题颜色/字体/排版；`prefers-reduced-motion` 降级；预览模式无改密/退出。
+- 页面排版：8 类默认模板、拖动/缩放/属性/加文字/加图片/恢复默认/保存；新占位符；结尾按钮保留。
+- 管理端：页面注册表、批量操作与撤销、批量媒体、按文件名归属、外观编辑与真实预览、提示/对话框样式。
 - 移动端手测：iPhone/Android 字体加载无跳动、自动播放被拦、动画帧率正常。
 
 ## 10. 页面排版
@@ -160,10 +176,10 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 
 - **text**：`{ id, type:'text', x, y, w, text, unit, font, size, weight, color, align, lineHeight, opacity, z }`
   - `font`：`null`（系统）/ `'display'` / `'body'`（跟随主题字体）/ 预设 id
-  - 占位符：`{{name}}`、`{{department}}`、`{{joinDays}}`、`{{volunteerHours}}`、`{{activityCount}}`、`{{partner}}`、`{{message}}`
+  - 占位符：`{{name}}`、`{{department}}`、`{{joinDays}}`、`{{volunteerHours}}`、`{{activityCount}}`、`{{activities}}`、`{{activity1Name}}`、`{{activity1Date}}`、`{{activity1Work}}`、`{{activity2Name}}`、`{{activity2Date}}`、`{{activity2Work}}`、`{{partnerCount}}`、`{{partnerLine}}`、`{{partnerCaption}}`、`{{keyword}}`、`{{keywordReason}}`、`{{reportYear}}`、`{{message}}`
 - **image**：`{ id, type:'image', x, y, w, h, src, fit, radius, opacity, z }`，`src` 只允许 `/images/decor/<安全文件名>`
 - 校验（`lib/themes.js`）：每页 ≤40 个元素、文字 ≤2000 字，坐标/尺寸/字号/颜色/字重/层级均有范围；未知字段剔除，非法值 400。
-- 编辑：外观页「页面排版」模式，画布 390×844 等比缩放；拖动移动、右下角手柄调宽（图片可调高）；属性面板改文字/单位/字体/字号/字重/颜色/对齐/透明度/层级；「从当前样式生成」按现有版式 seed，「恢复默认排版」删除该页 layout。
+- 编辑：外观页「页面排版」模式，画布 390×844 等比缩放；按页面 type/config 分派默认模板（封面/数字/活动列表/回忆/伙伴/关键词/寄语）；拖动移动、右下角手柄调宽（图片可调高）；属性面板改文字/单位/字体/字号/字重/颜色/对齐/透明度/层级；「从当前样式生成」按现有版式 seed，「恢复默认排版」删除该页 layout。
 - 装饰图：`POST /media/upload?kind=decor`，存 `static/images/decor/`，5MB；编辑器上传后插入元素。
 - 渲染：有 layout 的页面隐藏 `.page-inner` 默认文字、只保留结尾页按钮行，`renderLayout` 生成 `.layout-canvas`；无 layout 的页面走原版式。`playPage` 重播布局入场动画；`prefers-reduced-motion` 下关闭。
 - 约束：排版属于主题，随「应用主题」分配；修改即时生效且不可撤销；结尾页按钮固定底部；不同手机比例按设计稿等比缩放，上下/左右可能有背景留白。

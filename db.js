@@ -45,13 +45,33 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS pages (
+    key TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    config TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
 
 // CREATE TABLE IF NOT EXISTS 不会给已存在的表补字段，老库需要手动补列
 const studentColumns = db.prepare('PRAGMA table_info(students)').all().map(column => column.name);
-for (const column of ['bg_dir', 'bg_music', 'join_date', 'theme']) {
+for (const column of [
+  'bg_dir', 'bg_music', 'join_date', 'theme',
+  'activities', 'activity1_name', 'activity1_date', 'activity1_work',
+  'activity2_name', 'activity2_date', 'activity2_work', 'keyword', 'keyword_reason',
+]) {
   if (!studentColumns.includes(column)) db.exec(`ALTER TABLE students ADD COLUMN ${column} TEXT`);
 }
+if (!studentColumns.includes('partner_count')) db.exec('ALTER TABLE students ADD COLUMN partner_count INTEGER');
 
 // 「加入天数」改为「入会日期」：老库按“今天往前推 N 天”折算成日期，然后删掉旧列
 if (studentColumns.includes('join_days')) {
@@ -61,5 +81,7 @@ if (studentColumns.includes('join_days')) {
 
 // 老库没有默认主题时补一条；必须放在 students.theme 列补齐之后
 require('./lib/themes').ensureDefault(db);
+// 页面注册表与年度设置：空库或页面被全部删掉时补默认 8 页
+require('./lib/pages').seed(db);
 
 module.exports = db;

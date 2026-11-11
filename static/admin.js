@@ -16,11 +16,14 @@ const state = {
   themeDraft: null,
   previewStudentId: '',
   themeMode: 'style',
-  layoutPageKey: '01-opening',
+  layoutPageKey: '01-cover',
   layoutSelectedId: '',
   layoutPreviewData: null,
   layoutPreviewFor: '',
   layoutScale: 1,
+  pages: [],
+  reportYear: '',
+  editingPageKey: null,
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -220,6 +223,11 @@ async function enterPanel() {
   $('#panel').hidden = false;
   if (!state.meta) {
     state.meta = await request('/meta');
+    state.pages = state.meta.pages || [];
+    state.reportYear = state.meta.reportYear || '';
+    if (!state.meta.pageKeys.includes(state.layoutPageKey)) state.layoutPageKey = state.meta.pageKeys[0] || '01-cover';
+    $('#reportYearInput').value = state.reportYear;
+    $('#loginPrefaceInput').value = (state.meta.loginCopy && state.meta.loginCopy.preface) || '';
     $('#headerHint').textContent = (state.meta.headers || []).join('、');
     $('#batchKeys').textContent = (state.meta.pageKeys || []).join('、');
     const banner = $('#warnBanner');
@@ -238,6 +246,7 @@ async function enterPanel() {
   }
   await loadStudents();
   await loadMedia();
+  renderPages();
   if (state.meta.features && state.meta.features.theme) {
     try {
       await loadThemes();
@@ -287,6 +296,7 @@ function selectTab(name) {
   if (name === 'theme' && state.meta && state.meta.features && state.meta.features.theme && state.themes.length === 0) {
     loadThemes().then(loadThemeFonts).catch(showError);
   }
+  if (name === 'pages') renderPages();
   if (name === 'theme' && state.themeMode === 'layout') {
     requestAnimationFrame(() => {
       if (isLayoutMode()) applyEditorScale();
@@ -473,7 +483,7 @@ function syncBatchValueInput() {
 
 $('#batchField').addEventListener('change', syncBatchValueInput);
 
-const BATCH_NUMERIC_FIELDS = new Set(['volunteerHours', 'activityCount']);
+const BATCH_NUMERIC_FIELDS = new Set(['volunteerHours', 'activityCount', 'partnerCount']);
 
 $('#batchForm').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -569,7 +579,16 @@ const EDITOR_FIELDS = {
   joinDate: '#f_joinDate',
   volunteerHours: '#f_volunteerHours',
   activityCount: '#f_activityCount',
-  partner: '#f_partner',
+  partnerCount: '#f_partnerCount',
+  activities: '#f_activities',
+  activity1Name: '#f_activity1Name',
+  activity1Date: '#f_activity1Date',
+  activity1Work: '#f_activity1Work',
+  activity2Name: '#f_activity2Name',
+  activity2Date: '#f_activity2Date',
+  activity2Work: '#f_activity2Work',
+  keyword: '#f_keyword',
+  keywordReason: '#f_keywordReason',
   message: '#f_message',
   bgDir: '#f_bgDir',
   bgMusic: '#f_bgMusic',
@@ -586,7 +605,16 @@ function openEditor(item) {
   $('#f_joinDate').value = item ? item.joinDate || '' : '';
   $('#f_volunteerHours').value = item && item.volunteerHours !== null ? item.volunteerHours : '';
   $('#f_activityCount').value = item && item.activityCount !== null ? item.activityCount : '';
-  $('#f_partner').value = item ? item.partner || '' : '';
+  $('#f_partnerCount').value = item && item.partnerCount !== null && item.partnerCount !== undefined ? item.partnerCount : '';
+  $('#f_activities').value = item ? item.activities || '' : '';
+  $('#f_activity1Name').value = item ? item.activity1Name || '' : '';
+  $('#f_activity1Date').value = item ? item.activity1Date || '' : '';
+  $('#f_activity1Work').value = item ? item.activity1Work || '' : '';
+  $('#f_activity2Name').value = item ? item.activity2Name || '' : '';
+  $('#f_activity2Date').value = item ? item.activity2Date || '' : '';
+  $('#f_activity2Work').value = item ? item.activity2Work || '' : '';
+  $('#f_keyword').value = item ? item.keyword || '' : '';
+  $('#f_keywordReason').value = item ? item.keywordReason || '' : '';
   $('#f_message').value = item ? item.message || '' : '';
   $('#f_bgDir').value = item ? item.bgDir || '' : '';
   $('#f_bgMusic').value = item ? item.bgMusic || '' : '';
@@ -626,7 +654,16 @@ $('#editorForm').addEventListener('submit', async (event) => {
     joinDate: $('#f_joinDate').value.trim(),
     volunteerHours: numberOrNull($('#f_volunteerHours').value),
     activityCount: numberOrNull($('#f_activityCount').value),
-    partner: $('#f_partner').value.trim(),
+    partnerCount: numberOrNull($('#f_partnerCount').value),
+    activities: $('#f_activities').value.trim(),
+    activity1Name: $('#f_activity1Name').value.trim(),
+    activity1Date: $('#f_activity1Date').value.trim(),
+    activity1Work: $('#f_activity1Work').value.trim(),
+    activity2Name: $('#f_activity2Name').value.trim(),
+    activity2Date: $('#f_activity2Date').value.trim(),
+    activity2Work: $('#f_activity2Work').value.trim(),
+    keyword: $('#f_keyword').value.trim(),
+    keywordReason: $('#f_keywordReason').value.trim(),
     message: $('#f_message').value,
     bgDir: $('#f_bgDir').value.trim(),
     bgMusic: $('#f_bgMusic').value.trim(),
@@ -705,22 +742,29 @@ async function previewReport(item) {
     for (const [label, value] of [
       ['姓名', data.name],
       ['部门', data.department],
+      ['年度', data.reportYear],
       ['入会日期', data.joinDate || '未填'],
       ['加入天数', data.joinDays === null || data.joinDays === undefined ? '—（未填入会日期）' : `${data.joinDays} 天（实时计算）`],
       ['志愿时长', data.volunteerHours],
       ['活动次数', data.activityCount],
-      ['年度伙伴', data.partner],
+      ['活动记录', (data.activities || []).join('、') || '未填'],
+      ['活动一', data.activity1 && data.activity1.name ? `${data.activity1.name} ${data.activity1.date || ''}：${data.activity1.work || ''}` : '未填'],
+      ['活动二', data.activity2 && data.activity2.name ? `${data.activity2.name} ${data.activity2.date || ''}：${data.activity2.work || ''}` : '未填'],
+      ['伙伴人数', data.partnerLine || '—'],
+      ['年度关键词', data.keyword ? `${data.keyword}${data.keywordReason ? `：${data.keywordReason}` : ''}` : '未填'],
       ['部长寄语', data.message],
       ['背景图目录', data.bgDir || '（未指定，用学号目录）'],
       ['背景音乐', data.bgMusic || '（未指定，找与学号同名）'],
       ['主题', data.themeId || '（默认主题）'],
+      ['页面数', `${Array.isArray(data.pages) ? data.pages.length : 0} 页`],
     ]) {
       body.append(el('div', 'muted', `${label}：${value ?? '-'}`));
     }
     body.append(el('div', 'muted', '—— 实际会加载的资源 ——'));
-    for (const key of state.meta.pageKeys) {
-      const url = data.backgrounds[key];
-      body.append(el('div', null, `${key}：${url || '未配置（用页面渐变）'}`));
+    for (const page of state.meta.pages || []) {
+      if (!page.enabled) continue;
+      const url = data.backgrounds[page.key];
+      body.append(el('div', null, `${page.title}：${url || '未配置（用页面渐变）'}`));
     }
     body.append(el('div', null, `背景音乐：${data.music || '未配置'}`));
     body.append(el('div', null, `标题字体：${data.theme.fonts.display || '系统默认'}`));
@@ -799,7 +843,7 @@ $('#batchMediaBtn').addEventListener('click', () => {
     const select = $(selectId);
     select.textContent = '';
     for (const key of state.meta.pageKeys) {
-      const option = el('option', null, key);
+      const option = el('option', null, pageName(key));
       option.value = key;
       select.append(option);
     }
@@ -1173,7 +1217,7 @@ function studentStmExists(studentId) {
 
 // 从文件名或文件夹结构推断这个文件该放哪儿
 function parseMediaFile(file) {
-  const keys = state.meta.pageKeys;
+  const keys = [...(state.meta.pageKeys || []), ...(state.meta.legacyPageKeys || [])];
   const { image: imageExts, music: musicExts } = state.meta.extensions;
 
   // 目录上传时 webkitRelativePath 形如 "我选的文件夹/2021001/01-opening.jpg"，
@@ -1450,17 +1494,21 @@ const DEFAULT_THEME_CONFIG = {
 const loadedPreviewFonts = new Set();
 
 // 页面键 → 面板里显示的名字（值仍是 data-bg 的键）
-const PAGE_NAMES = {
-  '01-opening': '开场页（姓名、部门）',
-  '02-days': '加入天数',
-  '03-hours': '志愿时长',
-  '04-activities': '活动次数',
-  '05-partner': '年度伙伴',
-  '06-message': '部长寄语',
-  '07-ending': '结尾页',
-};
+function pageName(key) {
+  const page = ((state.meta && state.meta.pages) || []).find(item => item.key === key);
+  return page ? page.title : key;
+}
 
-const pageName = key => PAGE_NAMES[key] || key;
+function renderThemePageOptions() {
+  const select = $('#t_page');
+  if (!select) return;
+  const previous = select.value;
+  select.textContent = '';
+  for (const key of ((state.meta && state.meta.pageKeys) || [])) {
+    select.append(new Option(pageName(key), key));
+  }
+  if (previous && ((state.meta && state.meta.pageKeys) || []).includes(previous)) select.value = previous;
+}
 
 function defaultThemeConfig() {
   return JSON.parse(JSON.stringify(DEFAULT_THEME_CONFIG));
@@ -1563,11 +1611,7 @@ function renderThemeEditor() {
   $('#t_notes').checked = config.motion.notes !== false;
   $('#t_ambient').checked = config.motion.ambient !== false;
 
-  const pageSelect = $('#t_page');
-  const previousPage = pageSelect.value;
-  pageSelect.textContent = '';
-  for (const key of state.meta.pageKeys) pageSelect.append(new Option(pageName(key), key));
-  if (previousPage && state.meta.pageKeys.includes(previousPage)) pageSelect.value = previousPage;
+  renderThemePageOptions();
   renderPageFields();
 
   renderFontOptions();
@@ -2004,8 +2048,13 @@ $('#themeAssignForm').addEventListener('submit', async (event) => {
 
 const LAYOUT_W = 390;
 const LAYOUT_H = 844;
-const LAYOUT_PLACEHOLDERS = ['name', 'department', 'joinDays', 'volunteerHours', 'activityCount', 'partner', 'message'];
-const LAYOUT_NUMERIC = new Set(['joinDays', 'volunteerHours', 'activityCount']);
+const LAYOUT_PLACEHOLDERS = [
+  'name', 'department', 'joinDays', 'volunteerHours', 'activityCount', 'partner', 'message',
+  'reportYear', 'activities', 'activity1Name', 'activity1Date', 'activity1Work',
+  'activity2Name', 'activity2Date', 'activity2Work', 'partnerCount', 'partnerLine', 'partnerCaption',
+  'keyword', 'keywordReason',
+];
+const LAYOUT_NUMERIC = new Set(['joinDays', 'volunteerHours', 'activityCount', 'partnerCount']);
 const editorFontPromises = new Map();
 
 const layoutId = () => `e-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -2032,6 +2081,7 @@ function layoutSubstitute(text, sample) {
   return String(text || '').replace(/\{\{\s*([A-Za-z]+)\s*\}\}/g, (_, key) => {
     if (!LAYOUT_PLACEHOLDERS.includes(key)) return '';
     const value = sample ? sample[key] : '';
+    if (key === 'activities') return Array.isArray(value) ? value.join('、') : String(value || '');
     if (value === null || value === undefined || value === '') return LAYOUT_NUMERIC.has(key) ? '—' : '';
     return String(value);
   });
@@ -2046,43 +2096,99 @@ function layoutSample() {
     joinDays: data.joinDays,
     volunteerHours: data.volunteerHours,
     activityCount: data.activityCount,
-    partner: data.partner,
+    activities: data.activities,
+    activity1Name: data.activity1 && data.activity1.name,
+    activity1Date: data.activity1 && data.activity1.date,
+    activity1Work: data.activity1 && data.activity1.work,
+    activity2Name: data.activity2 && data.activity2.name,
+    activity2Date: data.activity2 && data.activity2.date,
+    activity2Work: data.activity2 && data.activity2.work,
+    partnerCount: data.partnerCount,
+    partnerLine: data.partnerLine,
+    partnerCaption: data.partnerCaption,
+    keyword: data.keyword,
+    keywordReason: data.keywordReason,
     message: data.message,
+    reportYear: data.reportYear,
   };
 }
 
-function defaultLayoutTemplate(key) {
-  const line = (id, y, text) => ({
+function defaultLayoutTemplate(page) {
+  const type = page && page.type;
+  const config = (page && page.config) || {};
+  const line = (id, y, text, opts = {}) => ({
     id, type: 'text', x: 25, y, w: 340, text,
-    unit: '', font: 'body', size: 15, weight: 400, color: '#f4f7ff',
-    align: 'center', lineHeight: 1.4, opacity: 0.72, z: 1,
+    unit: '', font: opts.font || 'body', size: opts.size || 15, weight: opts.weight || 400,
+    color: '#f4f7ff', align: opts.align || 'center', lineHeight: opts.lineHeight || 1.4,
+    opacity: opts.opacity === undefined ? 0.72 : opts.opacity, z: 1,
   });
-  const name = (id, y, text) => ({ ...line(id, y, text), font: 'display', size: 42, weight: 700, lineHeight: 1.25, opacity: 1 });
-  const number = (id, y, text, unit) => ({ ...line(id, y, text), unit, font: 'display', size: 76, weight: 800, lineHeight: 1, opacity: 1 });
+  const name = (id, y, text, size = 42) => line(id, y, text, { font: 'display', size, weight: 700, lineHeight: 1.25, opacity: 1 });
+  const number = (id, y, text, unit) => line(id, y, text, { unit, font: 'display', size: 76, weight: 800, lineHeight: 1, opacity: 1 });
 
-  switch (key) {
-    case '01-opening':
-      return [
-        line('t-line', 240, '今年，我们一起走过'),
-        name('t-name', 288, '{{name}}'),
-        line('t-dept', 348, '{{department}}'),
-        { ...line('t-hint', 600, '上滑继续'), size: 13, opacity: 0.5 },
-      ];
-    case '02-days':
-      return [line('t-line', 250, '你加入我们已经'), number('t-num', 292, '{{joinDays}}', '天'), line('t-sub', 410, '每一天，都算数')];
-    case '03-hours':
-      return [line('t-line', 250, '今年你的志愿服务时长'), number('t-num', 292, '{{volunteerHours}}', '小时'), line('t-sub', 410, '把时间给了值得的人')];
-    case '04-activities':
-      return [line('t-line', 250, '这一年你参加了'), number('t-num', 292, '{{activityCount}}', '次'), line('t-sub', 410, '活动，每一次都在场')];
-    case '05-partner':
-      return [line('t-line', 250, '今年的年度伙伴是'), name('t-name', 292, '{{partner}}'), line('t-sub', 352, '并肩做事的默契，很难得')];
-    case '06-message':
-      return [line('t-line', 230, '部长想对你说'), { ...line('t-msg', 280, '{{message}}'), size: 17, lineHeight: 2, align: 'left', opacity: 1 }];
-    case '07-ending':
-      return [line('t-line', 240, '这一年，谢谢你在'), name('t-name', 288, '{{name}}'), line('t-sub', 348, '新的一年，继续一起走吧')];
-    default:
-      return [];
+  if (type === 'cover') {
+    return [
+      line('t-year', 200, '{{reportYear}} 年度回顾'),
+      name('t-name', 240, '{{name}}'),
+      line('t-dept', 300, '{{department}}'),
+      line('t-dedication', 350, '这一年，你的每一份付出，都值得被记录。', { size: 14, opacity: 0.6 }),
+      line('t-hint', 600, '上滑继续', { size: 13, opacity: 0.5 }),
+    ];
   }
+  if (type === 'stat') {
+    if (config.field === 'activityCount') {
+      return [
+        line('t-line', 250, '这一年，你参与了'),
+        number('t-num', 292, '{{activityCount}}', '次'),
+        line('t-sub', 410, '活动，每一次都在场'),
+      ];
+    }
+    return [
+      line('t-line', 250, '这一年，你累计贡献了'),
+      number('t-num', 292, '{{volunteerHours}}', '小时'),
+      line('t-sub', 410, '的志愿服务'),
+    ];
+  }
+  if (type === 'activities') {
+    return [
+      line('t-title', 220, '活动足迹'),
+      line('t-line', 265, '这一年，你参与了'),
+      number('t-num', 305, '{{activityCount}}', '次活动'),
+      line('t-list', 420, '{{activities}}', { size: 13, lineHeight: 1.7 }),
+      line('t-sub', 540, '每一次都在场'),
+    ];
+  }
+  if (type === 'memory') {
+    const index = config.index === 2 ? 2 : 1;
+    return [
+      line('t-title', 210, '活动回忆'),
+      name('t-name', 250, `{{activity${index}Name}}`, 28),
+      line('t-date', 315, `{{activity${index}Date}}`, { size: 13, opacity: 0.6 }),
+      line('t-work', 355, `{{activity${index}Work}}`, { size: 15, lineHeight: 1.8, align: 'left', opacity: 0.85 }),
+      line('t-sub', 560, index === 1 ? '定格一次投入' : '再看一个瞬间'),
+    ];
+  }
+  if (type === 'partners') {
+    return [
+      line('t-line', 240, '同行伙伴'),
+      number('t-num', 280, '{{partnerCount}}', '位'),
+      line('t-sub', 400, '{{partnerCaption}}'),
+    ];
+  }
+  if (type === 'keyword') {
+    return [
+      line('t-line', 240, '你的年度关键词是'),
+      name('t-keyword', 285, '{{keyword}}'),
+      line('t-reason', 360, '{{keywordReason}}', { size: 14, lineHeight: 1.8 }),
+    ];
+  }
+  if (type === 'message') {
+    return [
+      line('t-line', 220, '部长想对你说'),
+      line('t-message', 270, '{{message}}', { size: 17, lineHeight: 2, align: 'left', opacity: 1 }),
+      line('t-closing', 600, '感谢这一年的同行，期待下一程的你', { size: 13, opacity: 0.6 }),
+    ];
+  }
+  return [];
 }
 
 function editorFontUrl(ref) {
@@ -2139,7 +2245,7 @@ function renderLayoutPageSelect() {
   for (const key of state.meta.pageKeys) select.append(new Option(pageName(key), key));
   if (state.meta.pageKeys.includes(current)) select.value = current;
   else {
-    state.layoutPageKey = state.meta.pageKeys[0] || '01-opening';
+    state.layoutPageKey = state.meta.pageKeys[0] || '01-cover';
     select.value = state.layoutPageKey;
   }
 }
@@ -2394,7 +2500,7 @@ function renderLayoutEditor() {
   renderLayoutElementList();
   renderLayoutProperties();
   if (state.meta && state.meta.pageKeys) {
-    $('#layoutMeta').textContent += ` · 占位符：{{name}} {{department}} {{joinDays}} {{volunteerHours}} {{activityCount}} {{partner}} {{message}}`;
+    $('#layoutMeta').textContent += ' · 占位符：{{name}} {{reportYear}} {{volunteerHours}} {{activityCount}} {{activities}} {{activity1Name}} {{activity1Date}} {{activity1Work}} {{activity2Name}} {{partnerCount}} {{partnerLine}} {{keyword}} {{keywordReason}} {{message}}';
   }
 }
 
@@ -2429,7 +2535,7 @@ async function seedLayout() {
   if (layoutPageElements().length > 0) {
     if (!await confirmDialog('这一页已有排版，用默认样式覆盖吗？', { title: '生成默认排版', confirmText: '覆盖' })) return;
   }
-  setLayoutPageElements(state.layoutPageKey, defaultLayoutTemplate(state.layoutPageKey));
+  setLayoutPageElements(state.layoutPageKey, defaultLayoutTemplate((state.meta.pages || []).find(item => item.key === state.layoutPageKey)));
   state.layoutSelectedId = '';
   renderLayoutEditor();
   toast('已生成默认排版，可继续拖动调整');
@@ -2567,6 +2673,180 @@ $('#previewStudent').addEventListener('change', () => {
 
 window.addEventListener('resize', () => {
   if (isLayoutMode()) applyEditorScale();
+});
+
+/* ---------- 页面注册表 ---------- */
+
+function renderPages() {
+  const box = $('#pageList');
+  if (!box) return;
+  box.textContent = '';
+  if (!state.pages.length) {
+    box.append(el('p', 'muted', '还没有页面'));
+    return;
+  }
+  for (const page of state.pages) {
+    const row = el('div', 'row');
+    const head = el('div', 'row-head');
+    const checkbox = el('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = page.enabled;
+    checkbox.addEventListener('change', () => togglePage(page, checkbox.checked));
+    const main = el('div', 'row-main');
+    main.append(el('strong', null, page.title));
+    main.append(el('span', 'muted', `${page.key} · ${page.typeLabel || page.type} · 第 ${page.position} 位${page.enabled ? '' : ' · 已停用'}`));
+    head.append(checkbox, main);
+    row.append(head);
+
+    const actions = el('div', 'row-actions');
+    actions.append(button('上移', 'ghost', () => movePage(page, 'up')));
+    actions.append(button('下移', 'ghost', () => movePage(page, 'down')));
+    actions.append(button('编辑', 'ghost', () => openPageEditor(page)));
+    actions.append(button('删除', 'danger', () => deletePage(page)));
+    row.append(actions);
+    box.append(row);
+  }
+}
+
+function syncPageConfigRows() {
+  const type = $('#p_type').value;
+  $('#p_statRow').hidden = type !== 'stat';
+  $('#p_memoryRow').hidden = type !== 'memory';
+}
+
+function openPageEditor(page) {
+  state.editingPageKey = page ? page.key : null;
+  $('#pageEditorTitle').textContent = page ? `编辑页面：${page.title}` : '新增页面';
+  $('#p_type').value = page ? page.type : 'cover';
+  $('#p_title').value = page ? page.title : '';
+  const config = (page && page.config) || {};
+  $('#p_statField').value = config.field === 'activityCount' ? 'activityCount' : 'volunteerHours';
+  $('#p_memoryIndex').value = String(config.index === 2 ? 2 : 1);
+  $('#pageFormMessage').hidden = true;
+  syncPageConfigRows();
+  $('#pageEditorOverlay').hidden = false;
+}
+
+function closePageEditor() {
+  $('#pageEditorOverlay').hidden = true;
+  state.editingPageKey = null;
+}
+
+async function refreshAfterPages() {
+  state.meta = await request('/meta');
+  state.pages = state.meta.pages || [];
+  state.reportYear = state.meta.reportYear || '';
+  $('#reportYearInput').value = state.reportYear;
+  $('#batchKeys').textContent = (state.meta.pageKeys || []).join('、');
+  if (!(state.meta.pageKeys || []).includes(state.layoutPageKey)) {
+    state.layoutPageKey = (state.meta.pageKeys || [])[0] || '01-cover';
+    state.layoutSelectedId = '';
+  }
+  renderPages();
+  renderThemePageOptions();
+  if (state.themeMode === 'layout') {
+    renderLayoutPageSelect();
+    renderLayoutEditor();
+  }
+  if (state.media) await loadMedia();
+  renderPreviewStudentSelect();
+}
+
+async function togglePage(page, enabled) {
+  try {
+    await request(`/pages/${encodeURIComponent(page.key)}`, { method: 'PUT', body: { enabled } });
+    await refreshAfterPages();
+    toast(enabled ? '页面已启用' : '页面已停用');
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+}
+
+async function movePage(page, direction) {
+  try {
+    await request(`/pages/${encodeURIComponent(page.key)}/move`, { method: 'POST', body: { direction } });
+    await refreshAfterPages();
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+}
+
+async function deletePage(page) {
+  if (!await confirmDialog(`确定删除页面「${page.title}」吗？背景图和主题里对应的设置不会删除，但报告不再显示这一页。`, { title: '删除页面', confirmText: '删除', danger: true })) return;
+  try {
+    await request(`/pages/${encodeURIComponent(page.key)}`, { method: 'DELETE' });
+    await refreshAfterPages();
+    toast('页面已删除');
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+}
+
+$('#addPageBtn').addEventListener('click', () => openPageEditor(null));
+$('#refreshPagesBtn').addEventListener('click', () => {
+  refreshAfterPages().then(() => toast('页面已刷新')).catch(showError);
+});
+$('#pageCancel').addEventListener('click', closePageEditor);
+$('#p_type').addEventListener('change', syncPageConfigRows);
+$('#saveYearBtn').addEventListener('click', async () => {
+  const year = $('#reportYearInput').value.trim();
+  if (!/^\d{4}$/.test(year)) return alertDialog('年度需为 4 位数字');
+  try {
+    await request('/settings', { method: 'PUT', body: { reportYear: year } });
+    state.reportYear = year;
+    toast('年度已更新');
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+});
+$('#resetLoginPreface').addEventListener('click', () => {
+  const copy = (state.meta && state.meta.loginCopy) || {};
+  $('#loginPrefaceInput').value = copy.defaultPreface || '';
+});
+$('#loginCopyForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    const data = await request('/settings', { method: 'PUT', body: { loginPreface: $('#loginPrefaceInput').value } });
+    state.meta.loginCopy = { ...(state.meta.loginCopy || {}), preface: data.loginPreface };
+    $('#loginPrefaceInput').value = data.loginPreface;
+    toast(data.loginPreface ? '登录页前言已更新' : '登录页前言已清空，登录页将不再显示');
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+});
+$('#pageForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const type = $('#p_type').value;
+  const title = $('#p_title').value.trim();
+  if (!title) {
+    $('#pageFormMessage').textContent = '请填写页面标题';
+    $('#pageFormMessage').hidden = false;
+    return;
+  }
+  const config = type === 'stat'
+    ? { field: $('#p_statField').value }
+    : type === 'memory'
+      ? { index: Number($('#p_memoryIndex').value) }
+      : {};
+  try {
+    if (state.editingPageKey) {
+      await request(`/pages/${encodeURIComponent(state.editingPageKey)}`, { method: 'PUT', body: { type, title, config } });
+    } else {
+      await request('/pages', { method: 'POST', body: { type, title, config } });
+    }
+    closePageEditor();
+    await refreshAfterPages();
+    toast('页面已保存');
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    $('#pageFormMessage').textContent = error.message;
+    $('#pageFormMessage').hidden = false;
+  }
 });
 
 /* ---------- 启动 ---------- */

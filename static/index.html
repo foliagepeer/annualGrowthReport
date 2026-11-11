@@ -16,7 +16,7 @@
   <div class="login-inner">
     <p class="login-kicker" data-animate="fadeInDown">ANNUAL REPORT</p>
     <h1 class="login-title" data-animate="fadeInUp" data-delay="120ms">年度成长报告</h1>
-    <p class="login-desc" data-animate="fadeInUp" data-delay="240ms">输入学号与密码，打开属于你的这一年</p>
+    <p id="loginPreface" class="login-desc login-preface" data-animate="fadeInUp" data-delay="240ms">输入学号与密码，打开属于你的这一年</p>
 
     <form id="loginForm" class="login-form" novalidate>
       <input id="studentId" class="field" type="text" inputmode="numeric" autocomplete="username"
@@ -61,70 +61,13 @@
     <span class="spark spark-8"></span>
   </div>
 
+  <div id="endingActions" class="btn-row" data-animate="fadeIn" data-delay="800ms" hidden>
+    <button id="changePasswordBtn" class="btn-ghost" type="button">修改密码</button>
+    <button id="logoutBtn" class="btn-ghost" type="button">退出登录</button>
+  </div>
+
   <div class="swiper" id="reportSwiper">
-    <div class="swiper-wrapper">
-
-      <section class="swiper-slide page page-opening" data-bg="01-opening">
-        <div class="page-inner">
-          <p class="line" data-animate="fadeInDown">今年，我们一起走过</p>
-          <h2 class="huge" data-animate="fadeInUp" data-delay="150ms"><span data-field="name"></span></h2>
-          <p class="sub" data-animate="fadeInUp" data-delay="350ms"><span data-field="department"></span></p>
-          <p class="swipe-hint">上滑继续</p>
-        </div>
-      </section>
-
-      <section class="swiper-slide page page-days" data-bg="02-days">
-        <div class="page-inner">
-          <p class="line" data-animate="fadeIn">你加入我们已经</p>
-          <p class="number" data-animate="zoomIn" data-delay="150ms"><span data-count="joinDays">0</span><small>天</small></p>
-          <p class="sub" data-animate="fadeInUp" data-delay="400ms">每一天，都算数</p>
-        </div>
-      </section>
-
-      <section class="swiper-slide page page-hours" data-bg="03-hours">
-        <div class="page-inner">
-          <p class="line" data-animate="fadeIn">今年你的志愿服务时长</p>
-          <p class="number" data-animate="zoomIn" data-delay="150ms"><span data-count="volunteerHours">0</span><small>小时</small></p>
-          <p class="sub" data-animate="fadeInUp" data-delay="400ms">把时间给了值得的人</p>
-        </div>
-      </section>
-
-      <section class="swiper-slide page page-activities" data-bg="04-activities">
-        <div class="page-inner">
-          <p class="line" data-animate="fadeIn">这一年你参加了</p>
-          <p class="number" data-animate="zoomIn" data-delay="150ms"><span data-count="activityCount">0</span><small>次</small></p>
-          <p class="sub" data-animate="fadeInUp" data-delay="400ms">活动，每一次都在场</p>
-        </div>
-      </section>
-
-      <section class="swiper-slide page page-partner" data-bg="05-partner">
-        <div class="page-inner">
-          <p class="line" data-animate="fadeIn">今年的年度伙伴是</p>
-          <h2 class="huge" data-animate="zoomIn" data-delay="150ms"><span data-field="partner"></span></h2>
-          <p class="sub" data-animate="fadeInUp" data-delay="400ms">并肩做事的默契，很难得</p>
-        </div>
-      </section>
-
-      <section class="swiper-slide page page-message" data-bg="06-message">
-        <div class="page-inner">
-          <p class="line" data-animate="fadeIn">部长想对你说</p>
-          <p class="message" data-animate="fadeInUp" data-delay="200ms" data-field="message"></p>
-        </div>
-      </section>
-
-      <section class="swiper-slide page page-ending" data-bg="07-ending">
-        <div class="page-inner">
-          <p class="line" data-animate="fadeInUp">这一年，谢谢你在</p>
-          <h2 class="huge" data-animate="zoomIn" data-delay="200ms"><span data-field="name"></span></h2>
-          <p class="sub" data-animate="fadeInUp" data-delay="450ms">新的一年，继续一起走吧</p>
-          <div class="btn-row" data-animate="fadeIn" data-delay="800ms">
-            <button id="changePasswordBtn" class="btn-ghost" type="button">修改密码</button>
-            <button id="logoutBtn" class="btn-ghost" type="button">退出登录</button>
-          </div>
-        </div>
-      </section>
-
-    </div>
+    <div class="swiper-wrapper"></div>
     <div class="swiper-pagination"></div>
   </div>
 </div>

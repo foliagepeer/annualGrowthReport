@@ -1,6 +1,15 @@
 const FALLBACK = {
-  partner: '（暂无）',
+  partnerLine: '这一年，你和伙伴们并肩同行。',
+  partnerCaption: '这一年，你和伙伴们并肩同行。',
   message: '（暂无寄语）',
+  keyword: '待揭晓',
+  keywordReason: '',
+  activity1Name: '（活动待补充）',
+  activity1Date: '',
+  activity1Work: '（工作内容待补充）',
+  activity2Name: '（活动待补充）',
+  activity2Date: '',
+  activity2Work: '（工作内容待补充）',
 };
 
 const MUSIC_PREF_KEY = 'report.bgm';
@@ -11,6 +20,7 @@ const reportScreen = document.querySelector('#reportScreen');
 const loginForm = document.querySelector('#loginForm');
 const loginBtn = document.querySelector('#loginBtn');
 const loginError = document.querySelector('#loginError');
+const loginPreface = document.querySelector('#loginPreface');
 const logoutBtn = document.querySelector('#logoutBtn');
 const changePasswordBtn = document.querySelector('#changePasswordBtn');
 const passwordScreen = document.querySelector('#passwordScreen');
@@ -27,12 +37,19 @@ const passwordInput = document.querySelector('#password');
 const bgm = document.querySelector('#bgm');
 const musicToggle = document.querySelector('#musicToggle');
 const previewBadge = document.querySelector('#previewBadge');
+const endingActions = document.querySelector('#endingActions');
 
 const FONT_FALLBACK = 'system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
 const LAYOUT_WIDTH = 390;
 const LAYOUT_HEIGHT = 844;
-const PLACEHOLDER_KEYS = ['name', 'department', 'joinDays', 'volunteerHours', 'activityCount', 'partner', 'message'];
-const NUMERIC_PLACEHOLDERS = new Set(['joinDays', 'volunteerHours', 'activityCount']);
+const PLACEHOLDER_KEYS = [
+  'name', 'department', 'joinDays', 'volunteerHours', 'activityCount', 'partner', 'message',
+  'reportYear', 'activities', 'activity1Name', 'activity1Date', 'activity1Work',
+  'activity2Name', 'activity2Date', 'activity2Work', 'partnerCount', 'partnerLine', 'partnerCaption',
+  'keyword', 'keywordReason',
+];
+const NUMERIC_PLACEHOLDERS = new Set(['joinDays', 'volunteerHours', 'activityCount', 'partnerCount']);
+const PAGE_TYPES = new Set(['cover', 'stat', 'activities', 'memory', 'partners', 'keyword', 'message']);
 
 let swiper = null;
 let reportData = null;
@@ -147,6 +164,113 @@ function playEntryRing(slide) {
 }
 
 /* ---------- 渲染 ---------- */
+
+function pageTemplate(page) {
+  const type = PAGE_TYPES.has(page.type) ? page.type : 'message';
+  const config = page.config || {};
+
+  if (type === 'cover') {
+    return `
+      <p class="line" data-animate="fadeIn"><span data-field="reportYear"></span> 年度回顾</p>
+      <h2 class="huge" data-animate="fadeInUp" data-delay="150ms"><span data-field="name"></span></h2>
+      <p class="sub" data-animate="fadeInUp" data-delay="250ms"><span data-field="department"></span></p>
+      <p class="sub" data-animate="fadeInUp" data-delay="350ms">这一年，你的每一份付出，都值得被记录。</p>
+      <p class="swipe-hint">上滑继续</p>
+    `;
+  }
+
+  if (type === 'stat') {
+    if (config.field === 'activityCount') {
+      return `
+        <p class="line" data-animate="fadeIn">这一年，你参与了</p>
+        <p class="number" data-animate="zoomIn" data-delay="150ms"><span data-count="activityCount">0</span><small>次</small></p>
+        <p class="sub" data-animate="fadeInUp" data-delay="400ms">活动，每一次都在场</p>
+      `;
+    }
+    return `
+      <p class="line" data-animate="fadeIn">这一年，你累计贡献了</p>
+      <p class="number" data-animate="zoomIn" data-delay="150ms"><span data-count="volunteerHours">0</span><small>小时</small></p>
+      <p class="sub" data-animate="fadeInUp" data-delay="400ms">的志愿服务</p>
+    `;
+  }
+
+  if (type === 'activities') {
+    return `
+      <p class="line" data-animate="fadeIn">活动足迹</p>
+      <p class="line" data-animate="fadeIn" data-delay="100ms">这一年，你参与了</p>
+      <p class="number" data-animate="zoomIn" data-delay="150ms"><span data-count="activityCount">0</span><small>次活动</small></p>
+      <div class="activity-list" data-animate="fadeInUp" data-delay="350ms"></div>
+      <p class="sub" data-animate="fadeInUp" data-delay="450ms">每一次都在场</p>
+    `;
+  }
+
+  if (type === 'memory') {
+    const index = config.index === 2 ? 2 : 1;
+    return `
+      <p class="line" data-animate="fadeIn">活动回忆</p>
+      <h2 class="huge" data-animate="fadeInUp" data-delay="120ms"><span data-field="activity${index}Name"></span></h2>
+      <p class="sub" data-animate="fadeInUp" data-delay="200ms"><span data-field="activity${index}Date"></span></p>
+      <p class="message work" data-animate="fadeInUp" data-delay="300ms" data-field="activity${index}Work"></p>
+      <p class="sub" data-animate="fadeInUp" data-delay="450ms">${index === 1 ? '定格一次投入' : '再看一个瞬间'}</p>
+    `;
+  }
+
+  if (type === 'partners') {
+    return `
+      <p class="line" data-animate="fadeIn">同行伙伴</p>
+      <p class="number" data-animate="zoomIn" data-delay="150ms"><span data-count="partnerCount">0</span><small>位</small></p>
+      <p class="sub" data-animate="fadeInUp" data-delay="400ms" data-field="partnerCaption"></p>
+    `;
+  }
+
+  if (type === 'keyword') {
+    return `
+      <p class="line" data-animate="fadeIn">你的年度关键词是</p>
+      <h2 class="huge" data-animate="zoomIn" data-delay="150ms"><span data-field="keyword"></span></h2>
+      <p class="sub" data-animate="fadeInUp" data-delay="400ms" data-field="keywordReason"></p>
+    `;
+  }
+
+  return `
+    <p class="line" data-animate="fadeIn">部长想对你说</p>
+    <p class="message" data-animate="fadeInUp" data-delay="200ms" data-field="message"></p>
+    <p class="sub" data-animate="fadeInUp" data-delay="500ms">感谢这一年的同行，期待下一程的你</p>
+  `;
+}
+
+function fillActivityList(inner, activities) {
+  const list = inner.querySelector('.activity-list');
+  if (!list) return;
+  const names = Array.isArray(activities) ? activities.filter(Boolean) : [];
+  if (names.length === 0) {
+    list.textContent = '（活动记录待补充）';
+    return;
+  }
+  for (const name of names) {
+    const tag = document.createElement('span');
+    tag.className = 'activity-tag';
+    tag.textContent = name;
+    list.append(tag);
+  }
+}
+
+function buildSlides(pages, data) {
+  const wrapper = document.querySelector('#reportSwiper .swiper-wrapper');
+  wrapper.textContent = '';
+  for (const page of pages) {
+    const type = PAGE_TYPES.has(page.type) ? page.type : 'message';
+    const section = document.createElement('section');
+    section.className = `swiper-slide page page-${type}`;
+    section.dataset.bg = page.key;
+    section.dataset.pageType = type;
+    const inner = document.createElement('div');
+    inner.className = 'page-inner';
+    inner.innerHTML = pageTemplate({ ...page, type });
+    section.append(inner);
+    wrapper.append(section);
+    if (type === 'activities') fillActivityList(inner, data.activities);
+  }
+}
 
 function renderReport(data) {
   reportData = data;
@@ -280,6 +404,9 @@ function substituteLayoutText(text, data) {
   return String(text || '').replace(/\{\{\s*([A-Za-z]+)\s*\}\}/g, (_, key) => {
     if (!PLACEHOLDER_KEYS.includes(key)) return '';
     const value = data ? data[key] : '';
+    if (key === 'activities') {
+      return Array.isArray(value) ? value.join('、') : String(value || '');
+    }
     if (value === null || value === undefined || value === '') {
       return NUMERIC_PLACEHOLDERS.has(key) ? '—' : '';
     }
@@ -422,6 +549,17 @@ bgm.addEventListener('error', () => {
 
 /* ---------- 屏幕切换 ---------- */
 
+async function loadLoginCopy() {
+  try {
+    const data = await request('/api/login-copy');
+    const preface = typeof data.preface === 'string' ? data.preface : '';
+    loginPreface.textContent = preface;
+    loginPreface.hidden = preface === '';
+  } catch {
+    // 接口不可用时保留 HTML 里的默认文案
+  }
+}
+
 function showLoginError(message) {
   loginError.textContent = message;
   loginError.hidden = false;
@@ -447,11 +585,29 @@ function showLogin(message) {
 }
 
 function enterReport(data) {
+  if (swiper) {
+    swiper.destroy(true, false);
+    swiper = null;
+  }
+  const pages = Array.isArray(data.pages) ? data.pages : [];
+  buildSlides(pages, data);
   renderReport(data);
   loginScreen.hidden = true;
   passwordScreen.hidden = true;
   reportScreen.hidden = false;
   hideLoginError();
+
+  const wrapper = document.querySelector('#reportSwiper .swiper-wrapper');
+  const slides = wrapper.querySelectorAll('.swiper-slide');
+  const lastSlide = slides[slides.length - 1] || null;
+  if (lastSlide) {
+    const inner = lastSlide.querySelector('.page-inner');
+    if (inner) inner.append(endingActions);
+    endingActions.hidden = false;
+  } else {
+    endingActions.hidden = true;
+  }
+
   applyTheme(data.theme);
   loadFonts(data.theme && data.theme.fonts);
   applyBackgrounds(data.backgrounds);
@@ -460,7 +616,7 @@ function enterReport(data) {
   applyLayoutScale();
 
   // 切页光圈的元素只建一次（纯装饰，不写进 HTML）
-  document.querySelectorAll('.page').forEach((page) => {
+  slides.forEach((page) => {
     if (page.querySelector('.entry-ring')) return;
     const ring = document.createElement('span');
     ring.className = 'entry-ring';
@@ -474,12 +630,7 @@ function enterReport(data) {
     previewBadge.hidden = false;
   }
 
-  if (swiper) {
-    swiper.slideTo(0, 0);
-    playPage(swiper.slides[0]);
-    return;
-  }
-
+  document.querySelector('.swiper-pagination').textContent = '';
   swiper = new Swiper('#reportSwiper', {
     direction: 'vertical',
     speed: 800,
@@ -494,6 +645,8 @@ function enterReport(data) {
       },
     },
   });
+  swiper.slideTo(0, 0);
+  playPage(swiper.slides[0]);
 }
 
 /* ---------- 修改密码 ---------- */
@@ -649,6 +802,7 @@ async function startPreview(params) {
     return;
   }
 
+  loadLoginCopy();
   playAnimations(loginScreen);
   try {
     const data = await request('/api/report');

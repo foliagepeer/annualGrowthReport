@@ -34,6 +34,7 @@
     <button class="tab" data-tab="media" type="button">媒体资源</button>
     <button class="tab" data-tab="io" type="button">导入导出</button>
     <button class="tab" data-tab="theme" type="button">外观</button>
+    <button class="tab" data-tab="pages" type="button">页面</button>
   </nav>
 
   <p id="warnBanner" class="msg warn" hidden></p>
@@ -91,8 +92,8 @@
       <h2>批量上传（按文件名自动归属）</h2>
       <p class="muted">
         一次选多个文件或整个文件夹，系统按文件名判断归属：<br>
-        · <code>01-opening.jpg</code> → 所有成员的共享图<br>
-        · <code>2021001-01-opening.jpg</code> 或文件夹里的 <code>2021001/01-opening.jpg</code> → 该成员的专属图（覆盖共享图）<br>
+        · <code>01-cover.jpg</code> → 所有成员的共享图<br>
+        · <code>2021001-01-cover.jpg</code> 或文件夹里的 <code>2021001/01-cover.jpg</code> → 该成员的专属图（覆盖共享图）<br>
         · <code>2021001.mp3</code> → 该成员的背景音乐（与学号同名，自动生效）<br>
         槽位名：<span id="batchKeys"></span>
       </p>
@@ -117,7 +118,7 @@
     <section id="tab-io" class="tab-panel" hidden>
       <h2>批量添加 / 更新（粘贴文本）</h2>
       <p class="muted">每行一名成员，字段顺序：<code id="headerHint"></code>。逗号或 Tab 分隔，字段内含逗号请用双引号包起来；空行与 <code>#</code> 开头的行会忽略。一行就是单条，多行就是多条。</p>
-      <textarea id="importText" class="field" rows="6" placeholder="2021004,init123456,王五,外联部,2024-09-01,60,8,赵六,继续加油,,"></textarea>
+      <textarea id="importText" class="field" rows="6" placeholder="2021004,init123456,王五,外联部,2024-09-01,60,8,迎新晚会、支教,迎新晚会,2026-09-10,现场统筹,支教,2026-07-15,课程设计,12,现场定心丸,总能稳住场面,继续加油,,"></textarea>
       <div class="toolbar">
         <button id="previewTextBtn" class="primary" type="button">预览</button>
         <button id="commitTextBtn" class="primary" type="button" disabled>确认导入</button>
@@ -330,6 +331,33 @@
       </div>
       <p class="muted">会打开新窗口，用当前主题渲染所选成员的数据；需要当前浏览器已登录管理面板。</p>
     </section>
+
+    <!-- 页面注册表 -->
+    <section id="tab-pages" class="tab-panel" hidden>
+      <div class="toolbar">
+        <label class="field-label" for="reportYearInput">年度</label>
+        <input id="reportYearInput" class="field select-narrow" type="number" min="2000" max="2100" step="1">
+        <button id="saveYearBtn" class="primary" type="button">保存年度</button>
+        <span class="grow"></span>
+        <button id="addPageBtn" class="primary" type="button">新增页面</button>
+        <button id="refreshPagesBtn" class="ghost" type="button">刷新</button>
+      </div>
+      <p class="muted">页面类型固定；可调整顺序、启用/停用、改标题。背景图槽位使用页面 key（如 <code>01-cover</code>），照片按 <code>学号-key.jpg</code> 批量上传。</p>
+
+      <form id="loginCopyForm" class="card editor" novalidate>
+        <h3>登录页前言</h3>
+        <label class="field-label" for="loginPrefaceInput">标题下方的前言（支持换行）</label>
+        <textarea id="loginPrefaceInput" class="field" rows="3" maxlength="500"
+                  placeholder="输入学号与密码，打开属于你的这一年"></textarea>
+        <p class="muted">显示在登录页标题下方；留空则不显示。保存后成员刷新登录页即可看到。</p>
+        <div class="toolbar">
+          <button class="primary" type="submit">保存前言</button>
+          <button id="resetLoginPreface" class="ghost" type="button">填入默认文案</button>
+        </div>
+      </form>
+
+      <div id="pageList" class="list"></div>
+    </section>
   </main>
 </div>
 
@@ -344,10 +372,27 @@
       <label>入会日期<input id="f_joinDate" class="field" type="text" placeholder="2024-09-01" maxlength="16"></label>
       <label>志愿时长<input id="f_volunteerHours" class="field" type="number" inputmode="decimal" step="0.5"></label>
       <label>活动次数<input id="f_activityCount" class="field" type="number" inputmode="numeric" step="1"></label>
-      <label>年度伙伴<input id="f_partner" class="field" type="text" maxlength="64"></label>
+      <label>伙伴人数<input id="f_partnerCount" class="field" type="number" inputmode="numeric" min="0" step="1" placeholder="留空=按部门人数"></label>
       <label>背景图目录<input id="f_bgDir" class="field" type="text" maxlength="64" placeholder="留空=用学号目录"></label>
       <label>背景音乐<input id="f_bgMusic" class="field" type="text" maxlength="64" placeholder="留空=找与学号同名"></label>
       <label>主题<select id="f_theme" class="field"></select></label>
+    </div>
+    <label>活动记录（用、分隔）<input id="f_activities" class="field" type="text" maxlength="2000" placeholder="迎新晚会、支教、校运会"></label>
+    <h3>活动回忆①</h3>
+    <div class="grid">
+      <label>活动名称<input id="f_activity1Name" class="field" type="text" maxlength="100"></label>
+      <label>日期<input id="f_activity1Date" class="field" type="text" placeholder="2026-05-20" maxlength="16"></label>
+      <label>承担工作<input id="f_activity1Work" class="field" type="text" maxlength="500"></label>
+    </div>
+    <h3>活动回忆②</h3>
+    <div class="grid">
+      <label>活动名称<input id="f_activity2Name" class="field" type="text" maxlength="100"></label>
+      <label>日期<input id="f_activity2Date" class="field" type="text" placeholder="2026-06-01" maxlength="16"></label>
+      <label>承担工作<input id="f_activity2Work" class="field" type="text" maxlength="500"></label>
+    </div>
+    <div class="grid">
+      <label>年度关键词<input id="f_keyword" class="field" type="text" maxlength="32" placeholder="如：现场定心丸"></label>
+      <label>关键词依据<input id="f_keywordReason" class="field" type="text" maxlength="500" placeholder="简短说明为什么"></label>
     </div>
     <label>部长寄语<textarea id="f_message" class="field" rows="4"></textarea></label>
     <label id="passwordLabel">新密码<input id="f_password" class="field" type="password" autocomplete="new-password" placeholder="留空=不修改密码" maxlength="64"></label>
@@ -382,7 +427,9 @@
         <option value="joinDate">入会日期</option>
         <option value="volunteerHours">志愿时长</option>
         <option value="activityCount">活动次数</option>
-        <option value="partner">年度伙伴</option>
+        <option value="partnerCount">伙伴人数</option>
+        <option value="keyword">年度关键词</option>
+        <option value="keywordReason">关键词依据</option>
         <option value="message">部长寄语</option>
         <option value="bgDir">背景图目录</option>
         <option value="bgMusic">背景音乐</option>
@@ -465,6 +512,40 @@
     <div class="toolbar">
       <button class="primary" type="submit">应用</button>
       <button id="themeAssignCancel" class="ghost" type="button">取消</button>
+    </div>
+  </form>
+</div>
+
+<!-- 页面编辑 -->
+<div id="pageEditorOverlay" class="overlay" hidden>
+  <form id="pageForm" class="card editor" novalidate>
+    <h2 id="pageEditorTitle">新增页面</h2>
+    <label>类型<select id="p_type" class="field">
+      <option value="cover">封面</option>
+      <option value="stat">数字统计</option>
+      <option value="activities">活动列表</option>
+      <option value="memory">活动回忆</option>
+      <option value="partners">同行伙伴</option>
+      <option value="keyword">年度关键词</option>
+      <option value="message">部长寄语</option>
+    </select></label>
+    <label>标题<input id="p_title" class="field" type="text" maxlength="32"></label>
+    <label id="p_statRow" hidden>数字字段
+      <select id="p_statField" class="field">
+        <option value="volunteerHours">志愿时长</option>
+        <option value="activityCount">活动次数</option>
+      </select>
+    </label>
+    <label id="p_memoryRow" hidden>回忆序号
+      <select id="p_memoryIndex" class="field">
+        <option value="1">活动回忆①</option>
+        <option value="2">活动回忆②</option>
+      </select>
+    </label>
+    <p id="pageFormMessage" class="msg error" hidden></p>
+    <div class="toolbar">
+      <button class="primary" type="submit">保存</button>
+      <button id="pageCancel" class="ghost" type="button">取消</button>
     </div>
   </form>
 </div>

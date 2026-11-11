@@ -5,6 +5,9 @@ const path = require('path');
 const records = require('../lib/student-records');
 const media = require('../lib/media');
 const themes = require('../lib/themes');
+const pages = require('../lib/pages');
+const loginCopy = require('../lib/login-copy');
+const report = require('../lib/report');
 const { AttemptLimiter } = require('../rate-limit');
 const { UndoBuffer } = require('../lib/undo-buffer');
 
@@ -27,7 +30,16 @@ const FIELD_TO_HEADER = {
   joinDate: '入会日期',
   volunteerHours: '志愿时长',
   activityCount: '活动次数',
-  partner: '年度伙伴',
+  activities: '活动记录',
+  activity1Name: '活动一名称',
+  activity1Date: '活动一日期',
+  activity1Work: '活动一工作',
+  activity2Name: '活动二名称',
+  activity2Date: '活动二日期',
+  activity2Work: '活动二工作',
+  partnerCount: '伙伴人数',
+  keyword: '年度关键词',
+  keywordReason: '关键词依据',
   message: '部长寄语',
   bgDir: '背景图目录',
   bgMusic: '背景音乐',
@@ -44,7 +56,16 @@ function toStudentDto(row) {
     joinDays: records.computeJoinDays(row.join_date),
     volunteerHours: row.volunteer_hours,
     activityCount: row.activity_count,
-    partner: row.partner,
+    activities: row.activities,
+    activity1Name: row.activity1_name,
+    activity1Date: row.activity1_date,
+    activity1Work: row.activity1_work,
+    activity2Name: row.activity2_name,
+    activity2Date: row.activity2_date,
+    activity2Work: row.activity2_work,
+    partnerCount: row.partner_count,
+    keyword: row.keyword,
+    keywordReason: row.keyword_reason,
     message: row.message,
     bgDir: row.bg_dir,
     bgMusic: row.bg_music,
@@ -170,7 +191,11 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     }
     res.json({
       headers: records.HEADERS,
-      pageKeys: media.PAGE_KEYS,
+      pageKeys: pages.enabledPages(db).map(page => page.key),
+      pages: pages.listPages(db),
+      reportYear: pages.getSetting(db, 'report_year', String(new Date().getFullYear())),
+      loginCopy: loginCopy.getLoginCopy(db),
+      legacyPageKeys: [...new Set(Object.values(media.BACKGROUND_ALIASES).flat())],
       limits: { image: KIND_LIMITS.image, music: KIND_LIMITS.music, font: KIND_LIMITS.font, rows: records.MAX_ROWS },
       extensions: { image: media.IMAGE_EXTENSIONS, music: media.AUDIO_EXTENSIONS, font: media.FONT_EXTENSIONS },
       fontPresets: media.listFontPresets(),
@@ -182,6 +207,63 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
         writable: canWrite(imageRoot) && canWrite(musicRoot) && canWrite(fontRoot),
       },
     });
+  });
+
+  /* ---------- 页面注册表 ---------- */
+
+  router.get('/pages', requireAdmin, (req, res) => {
+    res.json({
+      items: pages.listPages(db),
+      reportYear: pages.getSetting(db, 'report_year', String(new Date().getFullYear())),
+    });
+  });
+
+  router.post('/pages', requireAdmin, jsonBody, (req, res) => {
+    const result = pages.createPage(db, req.body || {});
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.status(201).json(result);
+  });
+
+  router.put('/pages/:key', requireAdmin, jsonBody, (req, res) => {
+    const result = pages.updatePage(db, req.params.key, req.body || {});
+    if (result.error === 'not_found') return res.status(404).json({ error: '页面不存在' });
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json(result);
+  });
+
+  router.delete('/pages/:key', requireAdmin, (req, res) => {
+    const result = pages.deletePage(db, req.params.key);
+    if (result.error === 'not_found') return res.status(404).json({ error: '页面不存在' });
+    res.json({ success: true });
+  });
+
+  router.post('/pages/:key/move', requireAdmin, jsonBody, (req, res) => {
+    const direction = req.body && req.body.direction;
+    if (direction !== 'up' && direction !== 'down') return res.status(400).json({ error: '方向只能是 up 或 down' });
+    const result = pages.movePage(db, req.params.key, direction);
+    if (result.error === 'not_found') return res.status(404).json({ error: '页面不存在' });
+    res.json({ success: true });
+  });
+
+  router.put('/settings', requireAdmin, jsonBody, (req, res) => {
+    const body = req.body || {};
+    const hasYear = Object.prototype.hasOwnProperty.call(body, 'reportYear');
+    const hasPreface = Object.prototype.hasOwnProperty.call(body, 'loginPreface');
+    if (!hasYear && !hasPreface) return res.status(400).json({ error: '没有要保存的设置' });
+
+    const result = {};
+    if (hasYear) {
+      const year = String(body.reportYear || '').trim();
+      if (!/^\d{4}$/.test(year)) return res.status(400).json({ error: '年度需为 4 位数字' });
+      pages.setSetting(db, 'report_year', year);
+      result.reportYear = year;
+    }
+    if (hasPreface) {
+      const saved = loginCopy.setPreface(db, body.loginPreface);
+      if (saved.error) return res.status(400).json({ error: saved.error });
+      result.loginPreface = saved.preface;
+    }
+    res.json(result);
   });
 
   /* ---------- 主题（外观） ---------- */
@@ -311,7 +393,16 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
         joinDate: existing.join_date,
         volunteerHours: existing.volunteer_hours,
         activityCount: existing.activity_count,
-        partner: existing.partner,
+        activities: existing.activities,
+        activity1Name: existing.activity1_name,
+        activity1Date: existing.activity1_date,
+        activity1Work: existing.activity1_work,
+        activity2Name: existing.activity2_name,
+        activity2Date: existing.activity2_date,
+        activity2Work: existing.activity2_work,
+        partnerCount: existing.partner_count,
+        keyword: existing.keyword,
+        keywordReason: existing.keyword_reason,
         message: existing.message,
         bgDir: existing.bg_dir,
         bgMusic: existing.bg_music,
@@ -369,7 +460,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
 
   const BATCH_LIMIT = 500;
   // 允许批量设置的字段（学号/姓名/密码不能批量改，密码走独立的「重置」）
-  const BATCH_FIELDS = ['department', 'joinDate', 'volunteerHours', 'activityCount', 'partner', 'message', 'bgDir', 'bgMusic', 'theme'];
+  const BATCH_FIELDS = ['department', 'joinDate', 'volunteerHours', 'activityCount', 'partnerCount', 'keyword', 'keywordReason', 'message', 'bgDir', 'bgMusic', 'theme'];
 
   function readBatchIds(body) {
     const list = Array.isArray(body && body.studentIds) ? body.studentIds : [];
@@ -464,29 +555,12 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     res.json({ success: true, deleted, sessionsRemoved, skipped, undo: undos.remember('批量删除', before) });
   });
 
-  // 预览某个成员看到的报告（含解析后的背景图、音乐与主题），用于排查资源是否配对
+  // 预览某个成员看到的报告（含解析后的背景图、音乐、主题与页面注册表）
   router.get('/students/:studentId/report', requireAdmin, (req, res) => {
     const row = findStudent.get(req.params.studentId);
     if (!row) return res.status(404).json({ error: '成员不存在' });
     const themeId = req.query.themeId ? String(req.query.themeId) : row.theme;
-    const theme = themes.resolveForReport(db, themeId);
-    res.json({
-      studentId: row.student_id,
-      name: row.name,
-      department: row.department,
-      joinDate: row.join_date,
-      joinDays: records.computeJoinDays(row.join_date),
-      volunteerHours: row.volunteer_hours,
-      activityCount: row.activity_count,
-      partner: row.partner,
-      message: row.message,
-      bgDir: row.bg_dir,
-      bgMusic: row.bg_music,
-      backgrounds: media.buildBackgroundMap(row.student_id, row.bg_dir),
-      music: media.resolveMusicUrl(row.student_id, row.bg_music),
-      themeId: theme.id,
-      theme,
-    });
+    res.json(report.buildReport(db, row, themeId));
   });
 
   /* ---------- 批量导入（文本 / Excel） ---------- */
@@ -643,7 +717,8 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     }
 
     res.json({
-      pageKeys: media.PAGE_KEYS,
+      pageKeys: pages.enabledPages(db).map(page => page.key),
+      pages: pages.enabledPages(db),
       images: {
         shared: media.listEntries('image', null),
         dirs,

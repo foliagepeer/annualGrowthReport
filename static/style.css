@@ -81,6 +81,8 @@ body {
   color: var(--text-dim);
 }
 
+.login-preface { white-space: pre-line; }
+
 .login-form {
   display: grid;
   gap: 14px;
@@ -225,6 +227,49 @@ body {
     linear-gradient(165deg, #0b1230 0%, #24245e 55%, #3d2a7a 100%);
 }
 
+/* 动态页面类型（页面注册表） */
+.page-cover {
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.12), transparent 55%),
+    linear-gradient(165deg, #0d1b3e 0%, #16255c 55%, #233a86 100%);
+}
+
+.page-stat {
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.12), transparent 55%),
+    linear-gradient(165deg, #241147 0%, #3b1d70 55%, #552a92 100%);
+}
+
+.page-activities {
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.12), transparent 55%),
+    linear-gradient(165deg, #3a1c07 0%, #6b3410 55%, #8f4a14 100%);
+}
+
+.page-memory {
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.12), transparent 55%),
+    linear-gradient(165deg, #10182b 0%, #1c2743 55%, #2a3a63 100%);
+}
+
+.page-partners {
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.12), transparent 55%),
+    linear-gradient(165deg, #3d0f27 0%, #6d1c3f 55%, #932a55 100%);
+}
+
+.page-keyword {
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.12), transparent 55%),
+    linear-gradient(165deg, #062a2b 0%, #0b4a44 55%, #0f6b5c 100%);
+}
+
+.page-message {
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.12), transparent 55%),
+    linear-gradient(165deg, #10182b 0%, #1c2743 55%, #2a3a63 100%);
+}
+
 .line {
   margin: 0 0 18px;
   font-family: var(--font-body);
@@ -282,6 +327,31 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   color: #eef3ff;
+}
+
+.message.work {
+  font-size: 15px;
+  line-height: 1.9;
+  color: var(--text-dim);
+}
+
+.activity-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 18px 0 0;
+  font-family: var(--font-body);
+}
+
+.activity-tag {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 13px;
+  color: var(--text-dim);
 }
 
 .swipe-hint {

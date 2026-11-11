@@ -5,6 +5,8 @@ const db = require('./db');
 const media = require('./lib/media');
 const records = require('./lib/student-records');
 const themes = require('./lib/themes');
+const report = require('./lib/report');
+const loginCopy = require('./lib/login-copy');
 const createAdminRouter = require('./routes/admin');
 const SQLiteSessionStore = require('./session-store');
 const { AttemptLimiter } = require('./rate-limit');
@@ -62,11 +64,7 @@ app.use(studentSession);
 app.use(express.json());
 
 const findStudentForLogin = db.prepare('SELECT student_id, password_hash FROM students WHERE student_id = ?');
-const findReport = db.prepare(`
-  SELECT name, department, join_date, volunteer_hours, activity_count, partner, message, bg_dir, bg_music, theme
-  FROM students
-  WHERE student_id = ?
-`);
+const findReport = db.prepare('SELECT * FROM students WHERE student_id = ?');
 
 // 学号不存在时也走一次 bcrypt，避免用响应耗时探测学号是否存在
 const BCRYPT_ROUNDS = 10;
@@ -120,6 +118,11 @@ app.get('/api/health', (req, res) => {
     env: process.env.NODE_ENV || 'development',
     time: new Date().toISOString(),
   });
+});
+
+// 登录页前言是公开文案，不含任何成员信息；未设置时返回默认值
+app.get('/api/login-copy', (req, res) => {
+  res.json({ preface: loginCopy.getPreface(db) });
 });
 
 app.post('/api/login', async (req, res) => {
@@ -189,19 +192,7 @@ app.get('/api/report', (req, res) => {
   const row = findReport.get(studentId);
   if (!row) return res.status(401).json({ error: '未登录' });
 
-  res.json({
-    name: row.name,
-    department: row.department,
-    joinDate: row.join_date,
-    joinDays: records.computeJoinDays(row.join_date), // 加入天数由入会日期实时算
-    volunteerHours: row.volunteer_hours,
-    activityCount: row.activity_count,
-    partner: row.partner,
-    message: row.message,
-    backgrounds: media.buildBackgroundMap(studentId, row.bg_dir),
-    music: media.resolveMusicUrl(studentId, row.bg_music),
-    theme: themes.resolveForReport(db, row.theme),
-  });
+  res.json(report.buildReport(db, row, row.theme));
 });
 
 app.post('/api/logout', (req, res) => {
