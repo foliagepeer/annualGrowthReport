@@ -57,7 +57,7 @@ admins(username PK, password_hash, created_at, password_changed_at, last_login_a
 - **背景音乐**：右上角圆形开关（播放呼吸、暂停斜杠）；登录后自动尝试播放，被自动播放策略拦下时等用户点；偏好记在 `localStorage['report.bgm']`；查找优先级 mp3 → m4a → ogg → wav，Excel 留空时找与学号同名的文件。
 - **主题**：`base` 写到 `#reportScreen` 的 `--accent` / `--accent-2` / `--accent-rgb` / `--accent-2-rgb` / `--scrim-rgb` / `--scrim-alpha`；`pages` 覆盖写到对应 slide 的内联变量；`motion` 切换 `.decor-notes-off` / `.decor-ambient-off`。
 - **字体**：后端解析 URL 后，前端 FontFace API 注册 `ReportDisplay` / `ReportBody`，2 秒超时静默回退系统字体；`.huge`/`.number` 用 `--font-display`，`.line`/`.sub`/`.message` 用 `--font-body`。
-- **边缘与光效**：`.decor-layer` 内联 SVG 音符 + 8 颗光点；`.entry-ring` 切页光圈（`playPage` 重挂 class）；`prefers-reduced-motion` 下全部隐藏。不要给整页加会持续动画的大面积光晕层——部分预览器/合成器会在图层接缝处渲染出横向亮带，登录页没有该层可作对照。
+- **边缘与光效**：`.decor-layer` 内联 SVG 音符 + 8 颗光点；`.entry-ring` 切页光圈（`playPage` 重挂 class，有附加图片的页面不创建）；`prefers-reduced-motion` 下全部隐藏。不要给整页加会持续动画的大面积光晕层——部分预览器/合成器会在图层接缝处渲染出横向亮带，登录页没有该层可作对照。
 - **自由排版**：主题的 `layout` 有某页时，渲染 390×844 设计稿（`.layout-canvas`，按视口等比缩放，背景由页面 cover 铺满），隐藏默认文字、只保留结尾页按钮行；支持文字占位符 `{{name}}` 等与图片；字体从主题字体/预设解析；无 layout 的页面走原版式。
 - **预览模式**：`/index.html?preview=1&student=<学号>&themeId=<主题 id>`，先校验管理员会话，再走管理端预览接口；隐藏改密/退出，不写音乐偏好，**绝不调用 `/api/logout`**。
 - 登录/改密页不套主题；未登录或 Session 过期时自动停在登录页。

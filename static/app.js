@@ -673,8 +673,11 @@ function enterReport(data) {
   applyLayoutScale();
 
   // 切页光圈跟随内容中心：有排版时挂在设计画布，默认版式挂在 .page-inner
+  // 有成员附加图片的页面不显示光圈，避免和照片抢视觉
   slides.forEach((page) => {
     if (page.querySelector('.entry-ring')) return;
+    const extraPhotos = data.extras && data.extras[page.dataset.bg];
+    if (extraPhotos && extraPhotos.length > 0) return;
     const ring = document.createElement('span');
     ring.className = 'entry-ring';
     ring.setAttribute('aria-hidden', 'true');
