@@ -13,8 +13,8 @@ const { UndoBuffer } = require('../lib/undo-buffer');
 
 const ADMIN_SESSION_MS = 12 * 60 * 60 * 1000; // 管理员会话 12 小时，比成员的 7 天短
 const JSON_LIMIT = '2mb'; // 全局 express.json() 默认只有 100kb，几百人的批量文本会被 413
-const UPLOAD_LIMIT = '10mb';
-const KIND_LIMITS = { image: 5 * 1024 * 1024, music: 8 * 1024 * 1024, font: 8 * 1024 * 1024, decor: 5 * 1024 * 1024 };
+const UPLOAD_LIMIT = '12mb'; // 必须高于单类上限（音乐 10MB），留出请求体余量
+const KIND_LIMITS = { image: 5 * 1024 * 1024, music: 10 * 1024 * 1024, font: 8 * 1024 * 1024, decor: 5 * 1024 * 1024 };
 const KIND_LABELS = { image: '图片', music: '音乐', font: '字体', decor: '图片' };
 const FONT_SLOTS = ['display', 'body'];
 const LIST_LIMIT_MAX = 200;

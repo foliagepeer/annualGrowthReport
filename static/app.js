@@ -401,14 +401,16 @@ function layoutFontFamily(ref, theme) {
 }
 
 function substituteLayoutText(text, data) {
-  return String(text || '').replace(/\{\{\s*([A-Za-z]+)\s*\}\}/g, (_, key) => {
+  return String(text || '').replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_, key) => {
     if (!PLACEHOLDER_KEYS.includes(key)) return '';
     const value = data ? data[key] : '';
     if (key === 'activities') {
-      return Array.isArray(value) ? value.join('、') : String(value || '');
+      const names = Array.isArray(value) ? value.filter(Boolean) : (value ? [String(value)] : []);
+      return names.length ? names.join('、') : '（活动记录待补充）';
     }
     if (value === null || value === undefined || value === '') {
-      return NUMERIC_PLACEHOLDERS.has(key) ? '—' : '';
+      if (NUMERIC_PLACEHOLDERS.has(key)) return '—';
+      return FALLBACK[key] || '';
     }
     return String(value);
   });

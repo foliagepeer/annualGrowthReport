@@ -2055,6 +2055,29 @@ const LAYOUT_PLACEHOLDERS = [
   'keyword', 'keywordReason',
 ];
 const LAYOUT_NUMERIC = new Set(['joinDays', 'volunteerHours', 'activityCount', 'partnerCount']);
+const LAYOUT_FALLBACK_SAMPLE = {
+  name: '示例成员', department: '示例部门', joinDays: 365, volunteerHours: 120, activityCount: 12,
+  activities: ['迎新晚会', '支教'],
+  activity1Name: '迎新晚会', activity1Date: '2026-09-10', activity1Work: '现场统筹',
+  activity2Name: '支教', activity2Date: '2026-07-15', activity2Work: '课程设计',
+  partnerCount: 12, partnerLine: '这一年，你与 12 位伙伴并肩同行。', partnerCaption: '这一年，你与伙伴并肩同行。',
+  keyword: '现场定心丸', keywordReason: '每次活动都能稳住场面', message: '愿你保持热爱，继续向前。',
+  reportYear: String(new Date().getFullYear()),
+};
+// 成员数据为空时的兜底，与成员端默认版式保持一致
+const LAYOUT_FALLBACK_TEXT = {
+  partnerLine: '这一年，你和伙伴们并肩同行。',
+  partnerCaption: '这一年，你和伙伴们并肩同行。',
+  message: '（暂无寄语）',
+  keyword: '待揭晓',
+  keywordReason: '',
+  activity1Name: '（活动待补充）',
+  activity1Date: '',
+  activity1Work: '（工作内容待补充）',
+  activity2Name: '（活动待补充）',
+  activity2Date: '',
+  activity2Work: '（工作内容待补充）',
+};
 const editorFontPromises = new Map();
 
 const layoutId = () => `e-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -2078,18 +2101,24 @@ function selectedLayoutElement() {
 }
 
 function layoutSubstitute(text, sample) {
-  return String(text || '').replace(/\{\{\s*([A-Za-z]+)\s*\}\}/g, (_, key) => {
+  return String(text || '').replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_, key) => {
     if (!LAYOUT_PLACEHOLDERS.includes(key)) return '';
     const value = sample ? sample[key] : '';
-    if (key === 'activities') return Array.isArray(value) ? value.join('、') : String(value || '');
-    if (value === null || value === undefined || value === '') return LAYOUT_NUMERIC.has(key) ? '—' : '';
+    if (key === 'activities') {
+      const names = Array.isArray(value) ? value.filter(Boolean) : (value ? [String(value)] : []);
+      return names.length ? names.join('、') : '（活动记录待补充）';
+    }
+    if (value === null || value === undefined || value === '') {
+      if (LAYOUT_NUMERIC.has(key)) return '—';
+      return LAYOUT_FALLBACK_TEXT[key] || '';
+    }
     return String(value);
   });
 }
 
 function layoutSample() {
   const data = state.layoutPreviewData;
-  if (!data) return {};
+  if (!data) return LAYOUT_FALLBACK_SAMPLE;
   return {
     name: data.name,
     department: data.department,
@@ -2097,12 +2126,12 @@ function layoutSample() {
     volunteerHours: data.volunteerHours,
     activityCount: data.activityCount,
     activities: data.activities,
-    activity1Name: data.activity1 && data.activity1.name,
-    activity1Date: data.activity1 && data.activity1.date,
-    activity1Work: data.activity1 && data.activity1.work,
-    activity2Name: data.activity2 && data.activity2.name,
-    activity2Date: data.activity2 && data.activity2.date,
-    activity2Work: data.activity2 && data.activity2.work,
+    activity1Name: data.activity1Name ?? (data.activity1 && data.activity1.name),
+    activity1Date: data.activity1Date ?? (data.activity1 && data.activity1.date),
+    activity1Work: data.activity1Work ?? (data.activity1 && data.activity1.work),
+    activity2Name: data.activity2Name ?? (data.activity2 && data.activity2.name),
+    activity2Date: data.activity2Date ?? (data.activity2 && data.activity2.date),
+    activity2Work: data.activity2Work ?? (data.activity2 && data.activity2.work),
     partnerCount: data.partnerCount,
     partnerLine: data.partnerLine,
     partnerCaption: data.partnerCaption,
@@ -2118,7 +2147,7 @@ function defaultLayoutTemplate(page) {
   const config = (page && page.config) || {};
   const line = (id, y, text, opts = {}) => ({
     id, type: 'text', x: 25, y, w: 340, text,
-    unit: '', font: opts.font || 'body', size: opts.size || 15, weight: opts.weight || 400,
+    unit: opts.unit || '', font: opts.font || 'body', size: opts.size || 15, weight: opts.weight || 400,
     color: '#f4f7ff', align: opts.align || 'center', lineHeight: opts.lineHeight || 1.4,
     opacity: opts.opacity === undefined ? 0.72 : opts.opacity, z: 1,
   });
@@ -2500,7 +2529,7 @@ function renderLayoutEditor() {
   renderLayoutElementList();
   renderLayoutProperties();
   if (state.meta && state.meta.pageKeys) {
-    $('#layoutMeta').textContent += ' · 占位符：{{name}} {{reportYear}} {{volunteerHours}} {{activityCount}} {{activities}} {{activity1Name}} {{activity1Date}} {{activity1Work}} {{activity2Name}} {{partnerCount}} {{partnerLine}} {{keyword}} {{keywordReason}} {{message}}';
+    $('#layoutMeta').textContent += ` · 占位符：${LAYOUT_PLACEHOLDERS.map(key => `{{${key}}}`).join(' ')}`;
   }
 }
 

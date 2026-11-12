@@ -104,7 +104,7 @@ docker compose exec -T app node scripts/set-admin.js admin --delete
 | `POST /themes/:id/default`、`POST /themes/:id/duplicate`、`GET /themes/fonts` | 设默认 / 复制 / 字体预设与自定义槽位（**必须先于 `/themes/:id` 注册**） |
 | `POST /import/text/preview`、`/import/text`、`/import/xlsx/preview`、`/import/xlsx` | 文本 / Excel 预览与执行（Excel 用原始字节 + `X-File-Name`，不用 multipart） |
 | `GET /export/xlsx`、`GET /export/template.xlsx`、`POST /export/xlsx` | 导出全部 / 模板 / 导出勾选（`{studentIds}`） |
-| `GET /media`、`POST /media/upload`、`DELETE /media` | 媒体全景、上传（`kind=image|music|font|decor`）、删除；字体仅两槽位且校验 woff magic、8MB；装饰图存 `static/images/decor/` |
+| `GET /media`、`POST /media/upload`、`DELETE /media` | 媒体全景、上传（`kind=image|music|font|decor`）、删除；音乐上限 10MB，字体仅两槽位且校验 woff magic、8MB；装饰图存 `static/images/decor/` |
 
 **交互约定**：成功/信息用右下角轻提示（默认 4.5 秒、带撤销 10 秒，提示本身不可点关闭，只能点小叉）；错误/校验用页面内对话框；危险操作红色确认按钮。不用原生 `confirm/alert/prompt`。
 
@@ -115,7 +115,7 @@ docker compose exec app node scripts/import-excel.js --template     # 生成模�
 docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 ```
 
-表头：`学号、密码、姓名、部门、入会日期、志愿时长、活动次数、活动记录、活动一名称/日期/工作、活动二名称/日期/工作、伙伴人数、年度关键词、关键词依据、部长寄语、背景图目录、背景音乐`。入会日期认 `2024-09-01`、`2024/9/1`、`2024.9.1`、`2024年9月1日`、`20240901`、Excel 日期/序列号；写错逐行报错跳过。
+表头：`学号、密码、姓名、部门、入会日期、志愿时长、活动次数、活动记录、活动一名称/日期/工作、活动二名称/日期/工作、伙伴人数、年度关键词、关键词依据、部长寄语、背景图目录、背景音乐`。入会日期认 `2024-09-01`、`2024/9/1`、`2024.9.1`、`2024年9月1日`、`20240901`、Excel 日期/序列号；活动一/二日期同样认这些写法，且可填多个（用 `、` 分隔，展示用）；写错逐行报错跳过。
 
 密码三规则：填了值 → 重设；留空且已存在 → 保留原密码；留空且新成员 → 用学号后六位。按学号 upsert。
 
@@ -132,11 +132,11 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 
 **nginx**（`nginx/default.conf` + `snippets/security-headers.conf`）：
 
-- 静态托管 + `/api` 反代（`proxy_read_timeout 300s`）；**不做 SPA 回退**（`try_files ... =404`），避免把漏文件伪装成 200 HTML。
+- 静态托管 + `/api` 反代（`proxy_read_timeout 300s`）；**不做 SPA 回退**（`try_files ... =404`），避免把漏文件伪装成 200 HTML。入口文件（`/`、`app.js`、`style.css`）带 `Cache-Control: no-cache`，避免成员端拿旧脚本。
 - `/admin`、`/admin/` → 301 `/admin.html`；面板三文件 `no-cache`。
 - `/images/`、`/music/`、`/fonts/` 30 天缓存；`/fonts/` 无需 types 块（nginx 自带 woff/woff2）。**location 里写了 `add_header` 就不再继承上层，必须 include 安全头片段**。
 - 安全头：nosniff、X-Frame-Options、Referrer-Policy、CSP（`default-src 'self'`，`script-src 'self'`，样式允许内联）。
-- `keepalive_timeout 300s`；`client_max_body_size 8m` + JSON 413；gzip 仅文本类，`/api` 与图片显式关闭；HSTS 等 HTTPS 落地再加。
+- `keepalive_timeout 300s`；`client_max_body_size 12m` + JSON 413（音乐 10MB 需留余量）；gzip 仅文本类，`/api` 与图片显式关闭；HSTS 等 HTTPS 落地再加。
 
 **常用命令**：部署/重建 `docker compose up -d --build`；看日志 `docker compose logs -f app`；改 nginx 后 `docker compose exec nginx nginx -s reload`；改前端静态文件直接刷新，无需重启；停止 `docker compose down`；备份数据库 `docker run --rm -v sqlite_data:/data -v $(pwd):/backup alpine tar cvf /backup/backup.tar /data`。
 
@@ -163,7 +163,7 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 ## 9. 验证清单
 
 - 旧库启动：补列、`themes`/`pages`/`settings` seed、登录/报告/导入导出/媒体无回归；旧主题不报 400。
-- 接口：`/api/report` 含 pages/新字段/backgrounds/music/theme；页面注册表 CRUD/排序/启停/年度；主题 CRUD、默认/复制、删除保护；`/themes/fonts` 不被 `:id` 吞；字体上传 magic/8MB/覆盖清理；>8MB 413。
+- 接口：`/api/report` 含 pages/新字段/backgrounds/music/theme；页面注册表 CRUD/排序/启停/年度；主题 CRUD、默认/复制、删除保护；`/themes/fonts` 不被 `:id` 吞；字体上传 magic/8MB/覆盖清理；音乐 10MB；请求体 >12MB 413。
 - 数据链路：赋主题 → 编辑 → 文本导入（20 列/旧 11 列）→ Excel 导入 → 删除后撤销，主题与新字段不丢；导出再导入不丢；缺列继承生效。
 - 成员端：8 页动态渲染/翻页/动画/数字滚动；照片背景与暗层；音乐开关；页面注册表顺序/启停；最后一个 slide 的按钮；主题颜色/字体/排版；`prefers-reduced-motion` 降级；预览模式无改密/退出。
 - 页面排版：8 类默认模板、拖动/缩放/属性/加文字/加图片/恢复默认/保存；新占位符；结尾按钮保留。
