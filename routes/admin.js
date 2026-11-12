@@ -44,7 +44,6 @@ const FIELD_TO_HEADER = {
   bgDir: '背景图目录',
   bgMusic: '背景音乐',
   theme: '主题',
-  password: '密码',
 };
 
 function toStudentDto(row) {
@@ -88,7 +87,6 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
   const countSearchStudents = db.prepare('SELECT count(*) AS total FROM students WHERE instr(student_id, ?) > 0 OR instr(name, ?) > 0');
   const deleteStudent = db.prepare('DELETE FROM students WHERE student_id = ?');
   const deleteStudentSessions = db.prepare("DELETE FROM sessions WHERE json_extract(sess, '$.studentId') = ?");
-  const deleteOtherStudentSessions = db.prepare("DELETE FROM sessions WHERE sid != ? AND json_extract(sess, '$.studentId') = ?");
 
   /* ---------- 撤销：改动前先留一份记录快照 ---------- */
   const undos = new UndoBuffer();
@@ -353,7 +351,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     res.json({ total, items: rows.map(toStudentDto) });
   });
 
-  // 单条新增与编辑都走 records 的同一套规则（密码三规则、字段校验、upsert）
+  // 单条新增与编辑都走 records 的同一套规则（字段校验、upsert）
   function planSingle(studentId, body) {
     const row = { 学号: studentId, __line: 1 };
     for (const [key, header] of Object.entries(FIELD_TO_HEADER)) {
@@ -362,7 +360,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     return row;
   }
 
-  router.post('/students', requireAdmin, jsonBody, async (req, res, next) => {
+  router.post('/students', requireAdmin, jsonBody, (req, res, next) => {
     try {
       const body = req.body || {};
       const plan = records.planRecords(db, [planSingle(body.studentId, body)]);
@@ -370,15 +368,14 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
       if (item.error) return res.status(400).json({ error: item.error });
       if (item.action !== 'insert') return res.status(409).json({ error: '该学号已存在，请改用编辑' });
 
-      await records.fillPasswords([item]);
       records.applyRecords(db, [item]);
-      res.status(201).json({ success: true, action: 'insert', usedDefaultPassword: item.passwordAction === 'default' });
+      res.status(201).json({ success: true, action: 'insert' });
     } catch (err) {
       next(err);
     }
   });
 
-  router.put('/students/:studentId', requireAdmin, jsonBody, async (req, res, next) => {
+  router.put('/students/:studentId', requireAdmin, jsonBody, (req, res, next) => {
     try {
       const studentId = req.params.studentId;
       const existing = findStudent.get(studentId);
@@ -407,7 +404,6 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
         bgDir: existing.bg_dir,
         bgMusic: existing.bg_music,
         theme: existing.theme,
-        password: '',
       };
       for (const key of Object.keys(FIELD_TO_HEADER)) {
         if (Object.prototype.hasOwnProperty.call(body, key)) merged[key] = body[key];
@@ -416,20 +412,12 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
       const plan = records.planRecords(db, [planSingle(merged.studentId, merged)]);
       const item = plan.items[0];
       if (item.error) return res.status(400).json({ error: item.error });
-      if (item.action === 'unchanged') return res.json({ success: true, changed: [], otherSessionsRemoved: 0 });
+      if (item.action === 'unchanged') return res.json({ success: true, changed: [] });
 
-      await records.fillPasswords([item]);
       const before = snapshotStudents([studentId]); // 改动前留底，供「撤销」还原
       records.applyRecords(db, [item]);
 
-      let otherSessionsRemoved = 0;
-      const changed = [...item.changedFields];
-      if (item.passwordAction === 'set' || item.passwordAction === 'default') {
-        changed.push('密码');
-        // 管理员改密码后，把这个成员在其他设备上的会话全部下线
-        otherSessionsRemoved = deleteOtherStudentSessions.run(req.sessionID, studentId).changes;
-      }
-      res.json({ success: true, changed, otherSessionsRemoved, undo: undos.remember('编辑成员', before) });
+      res.json({ success: true, changed: item.changedFields, undo: undos.remember('编辑成员', before) });
     } catch (err) {
       next(err);
     }
@@ -459,7 +447,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
   /* ---------- 批量操作 ---------- */
 
   const BATCH_LIMIT = 500;
-  // 允许批量设置的字段（学号/姓名/密码不能批量改，密码走独立的「重置」）
+  // 允许批量设置的字段（学号/姓名不能批量改）
   const BATCH_FIELDS = [
     'department', 'joinDate', 'volunteerHours', 'activityCount',
     'activities', 'activity1Name', 'activity1Date', 'activity1Work',
@@ -478,8 +466,8 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     return db.prepare(`DELETE FROM sessions WHERE json_extract(sess, '$.studentId') IN (${placeholders})`).run(...studentIds).changes;
   }
 
-  // 批量修改字段 / 批量把密码重置为「学号后六位」
-  router.post('/students/batch', requireAdmin, jsonBody, async (req, res, next) => {
+  // 批量修改字段
+  router.post('/students/batch', requireAdmin, jsonBody, (req, res, next) => {
     try {
       const body = req.body || {};
       const ids = readBatchIds(body);
@@ -491,9 +479,8 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
       const unknown = fields.filter(key => !BATCH_FIELDS.includes(key));
       if (unknown.length > 0) return res.status(400).json({ error: `不支持批量编辑这些字段：${unknown.join('、')}` });
 
-      const resetPassword = body.resetPasswordToDefault === true;
       const autoActivities = body.autoActivities === true;
-      if (fields.length === 0 && !resetPassword && !autoActivities) return res.status(400).json({ error: '没有要修改的内容' });
+      if (fields.length === 0 && !autoActivities) return res.status(400).json({ error: '没有要修改的内容' });
 
       const before = snapshotStudents(ids); // 改动前的快照，供「撤销」还原
 
@@ -506,7 +493,6 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
           continue;
         }
         const merged = toStudentDto(existing);
-        merged.password = resetPassword ? studentId.slice(-6) : '';
 
         if (autoActivities) {
           const names = [merged.activity1Name, merged.activity2Name]
@@ -530,21 +516,13 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
         items.push(item);
       }
 
-      await records.fillPasswords(items); // 重置密码可能要算几百次哈希，必须异步
       const result = records.applyRecords(db, items);
-
-      const passwordResetIds = items
-        .filter(item => item.passwordAction === 'set' || item.passwordAction === 'default')
-        .map(item => item.record.student_id);
-      const otherSessionsRemoved = removeSessionsFor(passwordResetIds);
 
       res.json({
         success: true,
         updated: result.imported,
         unchanged: result.unchanged,
         skipped,
-        passwordReset: passwordResetIds.length,
-        otherSessionsRemoved,
         undo: undos.remember('批量编辑', before),
       });
     } catch (err) {
@@ -654,7 +632,6 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
         name: item.name || '',
         action: item.action,
         changedFields: item.changedFields || [],
-        passwordAction: item.passwordAction || null,
         error: item.error || null,
       })),
       truncated: plan.items.length > PREVIEW_ITEMS_MAX,
@@ -677,16 +654,15 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     res.json(buildPreview(records.planRecords(db, rows), { parseErrors: errors }));
   });
 
-  router.post('/import/text', requireAdmin, jsonBody, async (req, res, next) => {
+  router.post('/import/text', requireAdmin, jsonBody, (req, res, next) => {
     try {
       if (missingText(req, res)) return;
       const { rows, errors } = records.parseText(req.body.text);
       if (rows.length === 0) return res.status(400).json({ error: '没有可导入的内容', parseErrors: errors });
 
       const plan = records.planRecords(db, rows);
-      await records.fillPasswords(plan.items); // 异步逐行哈希，避免阻塞其它请求
       const result = records.applyRecords(db, plan.items);
-      res.json({ success: true, imported: result.imported, unchanged: result.unchanged, defaulted: result.defaulted, skipped: result.skipped, parseErrors: errors });
+      res.json({ success: true, imported: result.imported, unchanged: result.unchanged, skipped: result.skipped, parseErrors: errors });
     } catch (err) {
       next(err);
     }
@@ -721,14 +697,13 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     res.json(buildPreview(records.planRecords(db, parsed.rows), { sheetName: parsed.sheetName }));
   });
 
-  router.post('/import/xlsx', requireAdmin, rawBody, async (req, res, next) => {
+  router.post('/import/xlsx', requireAdmin, rawBody, (req, res, next) => {
     try {
       const parsed = readExcel(req, res);
       if (!parsed) return;
       const plan = records.planRecords(db, parsed.rows);
-      await records.fillPasswords(plan.items);
       const result = records.applyRecords(db, plan.items);
-      res.json({ success: true, imported: result.imported, unchanged: result.unchanged, defaulted: result.defaulted, skipped: result.skipped, sheetName: parsed.sheetName });
+      res.json({ success: true, imported: result.imported, unchanged: result.unchanged, skipped: result.skipped, sheetName: parsed.sheetName });
     } catch (err) {
       next(err);
     }

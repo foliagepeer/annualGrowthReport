@@ -55,7 +55,6 @@
         <button id="batchMediaBtn" class="primary" type="button">批量媒体</button>
         <button id="batchThemeBtn" class="primary" type="button">应用主题</button>
         <button id="batchExportBtn" class="ghost" type="button">导出所选</button>
-        <button id="batchResetBtn" class="ghost" type="button">重置密码</button>
         <button id="batchDeleteBtn" class="danger" type="button">批量删除</button>
         <button id="batchClearBtn" class="ghost" type="button">取消选择</button>
       </div>
@@ -136,10 +135,9 @@
     <!-- 导入导出 -->
     <section id="tab-io" class="tab-panel" hidden>
       <p class="muted">「活动记录」留空时，会自动用同一行的两条活动回忆名称生成。</p>
-      <p class="muted">密码列留空：已有成员保留原密码；新成员自动用「学号后六位」作为初始密码。</p>
       <h2>批量添加 / 更新（粘贴文本）</h2>
       <p class="muted">每行一名成员，字段顺序：<code id="headerHint"></code>。逗号或 Tab 分隔，字段内含逗号请用双引号包起来；空行与 <code>#</code> 开头的行会忽略。一行就是单条，多行就是多条。</p>
-      <textarea id="importText" class="field" rows="6" placeholder="2021004,init123456,王五,外联部,2024-09-01,60,8,迎新晚会、支教,迎新晚会,2026-09-10,现场统筹,支教,2026-07-15,课程设计,12,现场定心丸,总能稳住场面,继续加油,,"></textarea>
+      <textarea id="importText" class="field" rows="6" placeholder="2021004,王五,外联部,2024-09-01,60,8,迎新晚会、支教,迎新晚会,2026-09-10,现场统筹,支教,2026-07-15,课程设计,12,现场定心丸,总能稳住场面,继续加油,,"></textarea>
       <div class="toolbar">
         <button id="previewTextBtn" class="primary" type="button">预览</button>
         <button id="commitTextBtn" class="primary" type="button" disabled>确认导入</button>
@@ -159,7 +157,6 @@
       <h2>导出</h2>
       <p><a class="ghost" href="/api/admin/export/xlsx">下载全部成员 Excel</a></p>
       <p class="muted">只想导出部分成员？到「成员」页勾选后在批量操作条上点「导出所选」。</p>
-      <p class="muted">密码列必然为空：库里只存哈希，导不出来。重新导入时，老成员的密码会被保留（密码列空白），新成员用「学号后六位」作初始密码。</p>
 
       <h2>预览结果</h2>
       <div id="previewBox" class="list"></div>
@@ -397,7 +394,7 @@
         <h3>登录页前言</h3>
         <label class="field-label" for="loginPrefaceInput">标题下方的前言（支持换行）</label>
         <textarea id="loginPrefaceInput" class="field" rows="3" maxlength="500"
-                  placeholder="输入学号与密码，打开属于你的这一年"></textarea>
+                  placeholder="输入姓名与学号，打开属于你的这一年"></textarea>
         <p class="muted">显示在登录页标题下方；留空则不显示。保存后成员刷新登录页即可看到。</p>
         <div class="toolbar">
           <button class="primary" type="submit">保存前言</button>
@@ -448,7 +445,6 @@
       <label>关键词依据<input id="f_keywordReason" class="field" type="text" maxlength="500" placeholder="简短说明为什么"></label>
     </div>
     <label>部长寄语<textarea id="f_message" class="field" rows="4"></textarea></label>
-    <label id="passwordLabel">新密码<input id="f_password" class="field" type="password" autocomplete="new-password" placeholder="留空=不修改密码" maxlength="64"></label>
     <p id="editorMessage" class="msg error" hidden></p>
     <div class="toolbar">
       <button class="primary" type="submit">保存</button>

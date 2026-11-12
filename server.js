@@ -1,9 +1,7 @@
 const express = require('express');
 const session = require('express-session');
-const bcrypt = require('bcryptjs');
 const db = require('./db');
 const media = require('./lib/media');
-const records = require('./lib/student-records');
 const themes = require('./lib/themes');
 const report = require('./lib/report');
 const loginCopy = require('./lib/login-copy');
@@ -63,12 +61,8 @@ app.use(studentSession);
 
 app.use(express.json());
 
-const findStudentForLogin = db.prepare('SELECT student_id, password_hash FROM students WHERE student_id = ?');
+const findStudentForLogin = db.prepare('SELECT student_id, name FROM students WHERE student_id = ?');
 const findReport = db.prepare('SELECT * FROM students WHERE student_id = ?');
-
-// 学号不存在时也走一次 bcrypt，避免用响应耗时探测学号是否存在
-const BCRYPT_ROUNDS = 10;
-const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', BCRYPT_ROUNDS);
 
 /* ---------- 防暴力破解 ---------- */
 // 同学号 5 次失败锁 10 分钟；同 IP 放宽到 30 次，避免校园网共用出口被一个人拖累
@@ -104,12 +98,6 @@ function lockedResponse(res, seconds) {
   res.status(429).json({ error: `错误次数过多，请 ${Math.ceil(seconds / 60)} 分钟后再试` });
 }
 
-const updatePassword = db.prepare('UPDATE students SET password_hash = ? WHERE student_id = ?');// 改密码后让其他设备上的会话失效，只保留当前这一个
-const deleteOtherSessions = db.prepare(`
-  DELETE FROM sessions
-  WHERE sid != ? AND json_extract(sess, '$.studentId') = ?
-`);
-
 /* ---------- 成员专属的背景图与背景音乐：解析逻辑在 lib/media.js ---------- */
 
 app.get('/api/health', (req, res) => {
@@ -125,21 +113,21 @@ app.get('/api/login-copy', (req, res) => {
   res.json({ preface: loginCopy.getPreface(db) });
 });
 
-app.post('/api/login', async (req, res) => {
-  const { studentId, password } = req.body || {};
-  if (typeof studentId !== 'string' || typeof password !== 'string' || !studentId.trim() || !password) {
-    return res.status(400).json({ error: '请填写学号和密码' });
+app.post('/api/login', (req, res) => {
+  const { studentId, name } = req.body || {};
+  if (typeof studentId !== 'string' || typeof name !== 'string' || !studentId.trim() || !name.trim()) {
+    return res.status(400).json({ error: '请填写姓名和学号' });
   }
 
   const id = studentId.trim();
+  const displayName = name.trim();
   const locked = lockedSeconds(req, id);
   if (locked > 0) return lockedResponse(res, locked);
 
   const student = findStudentForLogin.get(id);
-  const matched = await bcrypt.compare(password, student ? student.password_hash : DUMMY_HASH);
-  if (!student || !matched) {
+  if (!student || String(student.name || '').trim() !== displayName) {
     recordFailure(req, id);
-    return res.status(401).json({ error: '学号或密码错误' });
+    return res.status(401).json({ error: '姓名或学号不正确' });
   }
 
   clearFailures(req, id);
@@ -151,38 +139,6 @@ app.post('/api/login', async (req, res) => {
       res.json({ success: true });
     });
   });
-});
-
-app.post('/api/password', async (req, res) => {
-  const studentId = req.session.studentId;
-  if (!studentId) return res.status(401).json({ error: '未登录' });
-
-  const { oldPassword, newPassword } = req.body || {};
-  if (typeof oldPassword !== 'string' || typeof newPassword !== 'string' || !oldPassword || !newPassword) {
-    return res.status(400).json({ error: '请填写当前密码和新密码' });
-  }
-  if (newPassword.length < 6 || newPassword.length > 64) {
-    return res.status(400).json({ error: '新密码长度需为 6–64 位' });
-  }
-  if (newPassword === oldPassword) {
-    return res.status(400).json({ error: '新密码不能和当前密码相同' });
-  }
-
-  const locked = lockedSeconds(req, studentId);
-  if (locked > 0) return lockedResponse(res, locked);
-
-  const student = findStudentForLogin.get(studentId);
-  const matched = student ? await bcrypt.compare(oldPassword, student.password_hash) : false;
-  if (!matched) {
-    recordFailure(req, studentId);
-    return res.status(401).json({ error: '当前密码不正确' });
-  }
-
-  updatePassword.run(bcrypt.hashSync(newPassword, BCRYPT_ROUNDS), studentId);
-  const otherSessionsRemoved = deleteOtherSessions.run(req.sessionID, studentId).changes;
-  clearFailures(req, studentId);
-
-  res.json({ success: true, otherSessionsRemoved });
 });
 
 app.get('/api/report', (req, res) => {

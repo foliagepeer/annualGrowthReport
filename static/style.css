@@ -116,13 +116,6 @@ body {
   text-align: left;
 }
 
-.form-ok {
-  margin: 0;
-  font-size: 14px;
-  color: #86efac;
-  text-align: left;
-}
-
 .login-tip {
   margin: 22px 0 0;
   font-size: 13px;
@@ -481,7 +474,7 @@ body {
   padding: 0;
 }
 
-/* 只保留结尾页的修改密码/退出按钮，其余默认文字交给排版层 */
+/* 只保留结尾页的退出按钮，其余默认文字交给排版层 */
 .page.layout-active .page-inner > :not(.btn-row) { display: none; }
 .page.layout-active .btn-row { margin: 0; }
 

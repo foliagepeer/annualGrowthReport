@@ -18,7 +18,6 @@ db.exec(`
     activity_count INTEGER,
     partner TEXT,
     message TEXT,
-    password_hash TEXT NOT NULL,
     bg_dir TEXT,
     bg_music TEXT
   );
@@ -78,6 +77,9 @@ if (studentColumns.includes('join_days')) {
   db.exec("UPDATE students SET join_date = date('now', '-' || join_days || ' days') WHERE join_date IS NULL AND join_days IS NOT NULL");
   db.exec('ALTER TABLE students DROP COLUMN join_days');
 }
+
+// 成员端改为「姓名 + 学号」登录，密码字段不再使用
+if (studentColumns.includes('password_hash')) db.exec('ALTER TABLE students DROP COLUMN password_hash');
 
 // 老库没有默认主题时补一条；必须放在 students.theme 列补齐之后
 require('./lib/themes').ensureDefault(db);

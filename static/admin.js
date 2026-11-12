@@ -557,22 +557,6 @@ $('#batchForm').addEventListener('submit', async (event) => {
   }
 });
 
-$('#batchResetBtn').addEventListener('click', async () => {
-  const ids = Array.from(state.selected);
-  if (ids.length === 0) return;
-  if (!await confirmDialog(`确定把这 ${ids.length} 位成员的密码重置为「学号后六位」吗？他们在其他设备上的登录会被强制下线；如需保留原密码，10 秒内可在屏幕下方的提示里点「撤销」。`, { title: '重置密码' })) return;
-  try {
-    const result = await request('/students/batch', { method: 'POST', body: { studentIds: ids, resetPasswordToDefault: true } });
-    clearSelection();
-    await loadStudents();
-    toast(`已重置 ${result.passwordReset} 位成员的密码`
-      + (result.otherSessionsRemoved ? `，注销了 ${result.otherSessionsRemoved} 个登录会话` : ''), undoToast(result.undo));
-  } catch (error) {
-    if (error.status === 401) return showLogin('登录已过期，请重新登录');
-    showError(error);
-  }
-});
-
 $('#batchDeleteBtn').addEventListener('click', async () => {
   const ids = Array.from(state.selected);
   if (ids.length === 0) return;
@@ -628,7 +612,6 @@ const EDITOR_FIELDS = {
   message: '#f_message',
   bgDir: '#f_bgDir',
   bgMusic: '#f_bgMusic',
-  password: '#f_password',
 };
 
 function openEditor(item) {
@@ -655,8 +638,6 @@ function openEditor(item) {
   $('#f_bgDir').value = item ? item.bgDir || '' : '';
   $('#f_bgMusic').value = item ? item.bgMusic || '' : '';
   $('#f_theme').value = item && item.theme ? item.theme : '';
-  $('#f_password').value = '';
-  $('#f_password').placeholder = item ? '留空 = 不修改密码' : '留空 = 用学号后六位';
   const message = $('#editorMessage');
   message.hidden = true;
   message.textContent = '';
@@ -714,7 +695,6 @@ $('#editorForm').addEventListener('submit', async (event) => {
     bgDir: $('#f_bgDir').value.trim(),
     bgMusic: $('#f_bgMusic').value.trim(),
     theme: $('#f_theme').value,
-    password: $('#f_password').value,
   };
 
   if (!payload.studentId) return showEditorMessage('请填写学号');
@@ -729,25 +709,24 @@ $('#editorForm').addEventListener('submit', async (event) => {
       for (const [key, value] of Object.entries(payload)) {
         if (key === 'studentId') continue;
         const original = before[key] === undefined || before[key] === null ? '' : String(before[key]);
-        if (key === 'password' ? value : String(value) !== original) changed[key] = value;
+        if (String(value) !== original) changed[key] = value;
       }
       delete changed.studentId;
       const result = await request(`/students/${encodeURIComponent(before.studentId)}`, { method: 'PUT', body: changed });
       closeEditor();
       await loadStudents();
       await loadMedia();
-      if (result.changed.length === 0 && result.otherSessionsRemoved === 0) {
+      if (result.changed.length === 0) {
         toast('没有任何改动', { type: 'info' });
       } else {
-        const extra = result.otherSessionsRemoved > 0 ? `，并让该成员 ${result.otherSessionsRemoved} 个设备下线` : '';
-        toast(`已保存：${result.changed.join('、') || '无字段变化'}${extra}`, undoToast(result.undo));
+        toast(`已保存：${result.changed.join('、')}`, undoToast(result.undo));
       }
     } else {
       const result = await request('/students', { method: 'POST', body: payload });
       closeEditor();
       await loadStudents();
       await loadMedia();
-      toast(result.usedDefaultPassword ? '已新增，初始密码为学号后六位' : '已新增');
+      toast('已新增');
     }
   } catch (error) {
     if (error.status === 401) return showLogin('登录已过期，请重新登录');
@@ -1602,8 +1581,7 @@ function renderPreview(data) {
   const box = $('#previewBox');
   box.textContent = '';
   const counts = data.counts;
-  box.append(el('p', 'msg ok', `共 ${counts.total} 行：新增 ${counts.insert} · 更新 ${counts.update} · 无变化 ${counts.unchanged} · 错误 ${counts.error}`
-    + `（${counts.defaultPassword} 人将使用初始密码，${counts.setPassword} 人会被重设密码）`));
+  box.append(el('p', 'msg ok', `共 ${counts.total} 行：新增 ${counts.insert} · 更新 ${counts.update} · 无变化 ${counts.unchanged} · 错误 ${counts.error}`));
 
   const items = el('div', 'preview-items');
   for (const item of data.items) {
@@ -1612,8 +1590,6 @@ function renderPreview(data) {
     row.append(el('span', null, `${item.studentId || '—'} ${item.name || ''}`.trim()));
     row.append(el('span', `badge ${item.action}`, { insert: '新增', update: '更新', unchanged: '无变化', error: '错误' }[item.action] || item.action));
     if (item.changedFields && item.changedFields.length) row.append(el('span', 'muted', `改动：${item.changedFields.join('、')}`));
-    if (item.passwordAction === 'set') row.append(el('span', 'muted', '重设密码'));
-    if (item.passwordAction === 'default') row.append(el('span', 'muted', '初始密码'));
     if (item.error) row.append(el('span', 'msg error', item.error));
     items.append(row);
   }
@@ -1655,7 +1631,7 @@ $('#commitTextBtn').addEventListener('click', async () => {
     await loadStudents();
     await loadMedia();
     toast(`导入完成：写入 ${result.imported} 条，无变化 ${result.unchanged} 条，跳过 ${result.skipped.length} 条`
-      + (result.defaulted ? `，其中 ${result.defaulted} 人使用初始密码` : ''));
+      );
   } catch (error) {
     if (error.status === 401) return showLogin('登录已过期，请重新登录');
     showError(error);
@@ -1703,7 +1679,7 @@ $('#commitExcelBtn').addEventListener('click', async () => {
     await loadStudents();
     await loadMedia();
     toast(`导入完成：写入 ${result.imported} 条，无变化 ${result.unchanged} 条，跳过 ${result.skipped.length} 条`
-      + (result.defaulted ? `，其中 ${result.defaulted} 人使用初始密码` : ''));
+      );
   } catch (error) {
     if (error.status === 401) return showLogin('登录已过期，请重新登录');
     showError(error);
