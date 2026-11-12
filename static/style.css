@@ -506,6 +506,15 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* 排版里保持默认颜色的数字，与默认版式的大数字使用同一渐变 */
+.layout-number-value {
+  color: #fff;
+  background-image: linear-gradient(180deg, #ffffff 30%, var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
 .layout-image { display: block; }
 
 .layout-canvas.is-entering {

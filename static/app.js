@@ -469,6 +469,7 @@ function renderLayoutElement(element, theme, pageKey) {
     const value = document.createElement('span');
     value.dataset.count = numeric[1];
     value.textContent = '0';
+    if (String(element.color || '').toLowerCase() === '#f4f7ff') value.className = 'layout-number-value';
     node.append(value);
   } else {
     node.textContent = substituteLayoutText(element.text, reportData);

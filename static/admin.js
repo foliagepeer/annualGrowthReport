@@ -785,6 +785,12 @@ async function previewReport(item) {
     $('#reportTitle').textContent = `报告预览：${data.name}（${data.studentId}）`;
     const body = $('#reportBody');
     body.textContent = '';
+    const resolvedTheme = data.themeId ? themeById(data.themeId) : null;
+    const themeName = (resolvedTheme && resolvedTheme.name)
+      || (data.theme && data.theme.name)
+      || data.themeId
+      || '（默认主题）';
+    const themeLabel = `${themeName}${resolvedTheme && resolvedTheme.isDefault ? '（默认）' : ''}`;
     for (const [label, value] of [
       ['姓名', data.name],
       ['部门', data.department],
@@ -801,16 +807,24 @@ async function previewReport(item) {
       ['部长寄语', data.message],
       ['背景图目录', data.bgDir || '（未指定，用学号目录）'],
       ['背景音乐', data.bgMusic || '（未指定，找与学号同名）'],
-      ['主题', data.themeId || '（默认主题）'],
+      ['主题', themeLabel],
       ['页面数', `${Array.isArray(data.pages) ? data.pages.length : 0} 页`],
     ]) {
       body.append(el('div', 'muted', `${label}：${value ?? '-'}`));
     }
     body.append(el('div', 'muted', '—— 实际会加载的资源 ——'));
+    const themeLayout = (data.theme && data.theme.layout) || {};
     for (const page of state.meta.pages || []) {
       if (!page.enabled) continue;
       const url = data.backgrounds[page.key];
-      body.append(el('div', null, `${page.title}：${url || '未配置（用页面渐变）'}`));
+      const layout = themeLayout[page.key];
+      const slotCount = layout ? (layout.elements || []).filter(element => element.type === 'extra').length : 0;
+      const layoutText = layout ? `主题排版（${(layout.elements || []).length} 个元素，${slotCount} 个图片槽位）` : '默认版式';
+      body.append(el('div', null, `${page.title}：${url || '未配置（用页面渐变）'} · ${layoutText}`));
+      const extras = (data.extras && data.extras[page.key]) || [];
+      if (extras.length > 0) {
+        body.append(el('div', 'muted', `　附加图片 ${extras.length} 张：${extras.map(file => file.name).join('、')}`));
+      }
     }
     body.append(el('div', null, `背景音乐：${data.music || '未配置'}`));
     body.append(el('div', null, `标题字体：${data.theme.fonts.display || '系统默认'}`));
@@ -1082,7 +1096,7 @@ function renderExtras() {
   if (!box.childNodes.length) box.append(el('p', 'muted', '这个成员还没有附加图片'));
 }
 
-async function uploadExtraPhoto(file, pageKey, overwrite) {
+async function uploadExtraFor(studentId, pageKey, name, file, overwrite) {
   const extensions = (state.meta && state.meta.extensions && state.meta.extensions.image) || [];
   const ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
   if (!extensions.includes(ext)) {
@@ -1091,14 +1105,18 @@ async function uploadExtraPhoto(file, pageKey, overwrite) {
   if (file.size > state.meta.limits.image) {
     throw new Error(`图片不能超过 ${Math.round(state.meta.limits.image / 1024 / 1024)}MB`);
   }
-  const query = new URLSearchParams({ pageKey, name: file.name });
+  const query = new URLSearchParams({ pageKey, name });
   if (overwrite) query.set('overwrite', '1');
-  return request(`/students/${encodeURIComponent(state.mediaStudentId)}/photos?${query.toString()}`, {
+  return request(`/students/${encodeURIComponent(studentId)}/photos?${query.toString()}`, {
     method: 'POST',
     raw: true,
     headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) },
     body: file,
   });
+}
+
+async function uploadExtraPhoto(file, pageKey, overwrite) {
+  return uploadExtraFor(state.mediaStudentId, pageKey, file.name, file, overwrite);
 }
 
 async function deleteExtraPhoto(pageKey, name) {
@@ -1402,12 +1420,16 @@ function studentStmExists(studentId) {
 // 从文件名或文件夹结构推断这个文件该放哪儿
 function parseMediaFile(file) {
   const keys = [...(state.meta.pageKeys || []), ...(state.meta.legacyPageKeys || [])];
+  const extraKeys = (state.meta.pages || []).map(page => page.key).sort((a, b) => b.length - a.length);
   const { image: imageExts, music: musicExts } = state.meta.extensions;
 
   // 目录上传时 webkitRelativePath 形如 "我选的文件夹/2021001/01-opening.jpg"，
-  // 第一段是用户选中的文件夹本身，去掉它
+  // 第一段通常是用户选中的文件夹本身；如果直接选中了学号文件夹则保留
   const segments = (file.webkitRelativePath || '').split('/').filter(Boolean);
-  const parts = segments.length >= 3 ? segments.slice(1) : segments;
+  const directStudentFolder = segments.length >= 3
+    && studentStmExists(segments[0])
+    && (extraKeys.includes(segments[1]) || keys.includes(segments[1]));
+  const parts = segments.length >= 3 && !directStudentFolder ? segments.slice(1) : segments;
   const baseName = parts.length > 0 ? parts[parts.length - 1] : file.name;
   const ext = (baseName.match(/\.[^.]+$/) || [''])[0].toLowerCase();
   const stem = ext ? baseName.slice(0, baseName.length - ext.length) : baseName;
@@ -1415,6 +1437,11 @@ function parseMediaFile(file) {
   // 否则「我选的文件夹/04-activities.webp」这种会被误判
   const rawFolder = parts.length > 1 ? parts[0] : '';
   const folder = rawFolder && studentStmExists(rawFolder) ? rawFolder : '';
+
+  // 0) 成员附加图片：<学号>/<页面key>/<文件名>.<扩展名>
+  if (parts.length >= 3 && studentStmExists(parts[0]) && extraKeys.includes(parts[1]) && imageExts.includes(ext)) {
+    return { kind: 'extra', studentId: parts[0], pageKey: parts[1], name: baseName };
+  }
 
   // 1) 文件夹形式：<学号>/<槽位>.<扩展名>
   if (folder && keys.includes(stem) && imageExts.includes(ext)) {
@@ -1429,11 +1456,24 @@ function parseMediaFile(file) {
   if (matched && keys.includes(matched[2]) && imageExts.includes(ext)) {
     return { kind: 'image', dir: matched[1], name: `${matched[2]}${ext}`, studentId: matched[1] };
   }
-  // 4) 背景音乐：<学号>.<扩展名>
+  // 4) 成员附加图片：<学号>__<页面key>__<文件名>.<扩展名>
+  const extraSep = stem.indexOf('__');
+  if (extraSep > 0 && imageExts.includes(ext)) {
+    const studentId = stem.slice(0, extraSep);
+    const rest = stem.slice(extraSep + 2);
+    const pageKey = /^[A-Za-z0-9_-]{1,32}$/.test(studentId)
+      ? extraKeys.find(key => rest.startsWith(`${key}__`))
+      : '';
+    const extraName = pageKey ? rest.slice(pageKey.length + 2) : '';
+    if (pageKey && extraName) {
+      return { kind: 'extra', studentId, pageKey, name: `${extraName}${ext}` };
+    }
+  }
+  // 5) 背景音乐：<学号>.<扩展名>
   if (!folder && musicExts.includes(ext) && /^[A-Za-z0-9_-]{1,32}$/.test(stem)) {
     return { kind: 'music', dir: '', name: `${stem}${ext}`, studentId: stem };
   }
-  return { error: '文件名无法识别：图片要用「槽位名」或「学号-槽位名」，音乐要用「学号」命名' };
+  return { error: '文件名无法识别：背景图用「槽位名」或「学号-槽位名」，附加图片用「学号__页面key__文件名」，音乐用「学号」命名' };
 }
 
 function addToBatchPlan(files) {
@@ -1447,7 +1487,7 @@ function addToBatchPlan(files) {
       batchPlan.push({ file, ...parsed, status: 'error', message: `成员表里没有 ${parsed.studentId}，先添加成员再传` });
       continue;
     }
-    const limit = parsed.kind === 'image' ? state.meta.limits.image : state.meta.limits.music;
+    const limit = parsed.kind === 'music' ? state.meta.limits.music : state.meta.limits.image;
     if (file.size > limit) {
       batchPlan.push({ file, ...parsed, status: 'error', message: `超过 ${Math.round(limit / 1024 / 1024)}MB 上限` });
       continue;
@@ -1459,6 +1499,7 @@ function addToBatchPlan(files) {
 
 function describeTarget(item) {
   if (item.kind === 'music') return `${item.studentId} 的音乐 → music/${item.name}`;
+  if (item.kind === 'extra') return `${item.studentId} 的附加图片（${item.pageKey}）→ images/extras/${item.studentId}/${item.pageKey}/${item.name}`;
   if (item.dir) return `${item.dir} 的专属图 → images/${item.dir}/${item.name}`;
   return `共享图 → images/${item.name}`;
 }
@@ -1520,7 +1561,11 @@ $('#batchUploadBtn').addEventListener('click', async () => {
   for (const [index, item] of ready.entries()) {
     progress.textContent = `上传中 ${index + 1}/${ready.length}：${item.file.name}`;
     try {
-      await upload({ kind: item.kind, dir: item.dir, name: item.name, file: item.file, overwrite });
+      if (item.kind === 'extra') {
+        await uploadExtraFor(item.studentId, item.pageKey, item.name, item.file, overwrite);
+      } else {
+        await upload({ kind: item.kind, dir: item.dir, name: item.name, file: item.file, overwrite });
+      }
       item.status = 'done';
       item.message = '';
       done += 1;
@@ -1548,6 +1593,7 @@ $('#batchUploadBtn').addEventListener('click', async () => {
     + (failed ? `，失败 ${failed} 个` : '');
   renderBatchPlan();
   await loadMedia();
+  await loadExtras();
 });
 
 /* ---------- 导入 / 导出 ---------- */

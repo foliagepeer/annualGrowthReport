@@ -103,14 +103,19 @@
       </div>
       <div id="musicList" class="list"></div>
 
-      <h2>批量上传（按文件名自动归属）</h2>
-      <p class="muted">
-        一次选多个文件或整个文件夹，系统按文件名判断归属：<br>
-        · <code>01-cover.jpg</code> → 所有成员的共享图<br>
-        · <code>2021001-01-cover.jpg</code> 或文件夹里的 <code>2021001/01-cover.jpg</code> → 该成员的专属图（覆盖共享图）<br>
-        · <code>2021001.mp3</code> → 该成员的背景音乐（与学号同名，自动生效）<br>
-        槽位名：<span id="batchKeys"></span>
-      </p>
+      <h2>批量上传（按文件名/目录自动归属）</h2>
+      <div class="muted batch-help">
+        <p>一次选择多个文件或整个文件夹。文件夹可以选包含学号目录的父文件夹，也可以直接选某个学号文件夹。</p>
+        <ul>
+          <li><strong>共享背景图</strong>：<code>01-cover.jpg</code> → 所有成员</li>
+          <li><strong>成员背景图</strong>：<code>2021001-01-cover.jpg</code>、<code>2021001_01-cover.jpg</code> 或文件夹 <code>2021001/01-cover.jpg</code> → 只有该成员（覆盖共享图）</li>
+          <li><strong>成员附加图片</strong>：<code>2021001__04-memory-1__01.jpg</code>（学号与页面 key 之间是<strong>双下划线</strong>），或文件夹 <code>2021001/04-memory-1/01.jpg</code> → 该成员该页的照片，按文件名排序</li>
+          <li><strong>背景音乐</strong>：<code>2021001.mp3</code> → 该成员的音乐，与学号同名自动生效</li>
+        </ul>
+        <p>页面槽位名：<span id="batchKeys"></span>。</p>
+        <p>附加图片只是素材；页面排版里要有对应图片槽位才会按设计位置显示。未占用的照片会临时显示在页面底部。</p>
+        <p>支持 jpg / jpeg / png / webp 和 mp3 / m4a / ogg / wav；同名默认跳过，可勾选「同名文件直接覆盖」。</p>
+      </div>
       <div class="toolbar">
         <label class="ghost file-picker">选择文件（可多选）
           <input id="batchFiles" type="file" multiple accept="image/*,audio/*" hidden>

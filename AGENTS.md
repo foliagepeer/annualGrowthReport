@@ -85,6 +85,7 @@ docker compose exec -T app node scripts/set-admin.js admin --delete
 | `01-cover.jpg` | 全体共享图 | `images/01-cover.jpg` |
 | `2021001-01-cover.jpg` 或 `2021001_01-cover.jpg` | 该成员专属图 | `images/2021001/01-cover.jpg` |
 | 文件夹内 `2021001/01-cover.jpg` | 该成员专属图 | 同上 |
+| `2021001__04-memory-1__01.jpg` 或文件夹 `2021001/04-memory-1/01.jpg` | 该成员该页附加图片 | `images/extras/2021001/04-memory-1/01.jpg` |
 | `2021001.mp3` | 该成员背景音乐（自动生效） | `music/2021001.mp3` |
 
 槽位名就是页面 key；旧版 `01-opening` 等仍识别，并通过 `BACKGROUND_ALIASES` 回退显示。无法识别归属、学号不存在、超限的文件会在上传前拦下；同名默认跳过（可勾选覆盖）。批量上传不改数据库，只放文件。
