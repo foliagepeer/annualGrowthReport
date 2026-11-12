@@ -471,7 +471,7 @@ $('#batchEditBtn').addEventListener('click', () => {
   if (state.selected.size === 0) return;
   const message = $('#batchMessage');
   message.hidden = true;
-  $('#batchSummary').textContent = `将修改已勾选的 ${state.selected.size} 位成员`;
+  $('#batchSummary').textContent = `将编辑已勾选的 ${state.selected.size} 位成员`;
   $('#batchValue').value = '';
   syncBatchValueInput();
   $('#batchOverlay').hidden = false;
@@ -481,11 +481,42 @@ $('#batchCancel').addEventListener('click', () => { $('#batchOverlay').hidden = 
 
 // 入会日期给出示例格式，其它字段说明「留空=清空」
 function syncBatchValueInput() {
-  const isDate = $('#batchField').value === 'joinDate';
-  $('#batchValue').placeholder = isDate ? '2024-09-01' : '留空表示清空该字段';
+  const field = $('#batchField').value;
+  const isDate = field === 'joinDate' || field === 'activity1Date' || field === 'activity2Date';
+  const isActivities = field === 'activities';
+  $('#batchValue').placeholder = isDate
+    ? '2024-09-01，可填多个用、分隔'
+    : isActivities ? '留空 = 按每人自己的活动回忆生成' : '留空表示清空该字段';
+  $('#batchFieldHint').hidden = !isActivities;
+  $('#batchAutoActivitiesRow').hidden = !isActivities;
+  if (isActivities) {
+    $('#batchFieldHint').textContent = '留空时按每位成员自己的两条活动回忆名称生成；也可以直接点下面的按钮立即生成。';
+  }
 }
 
 $('#batchField').addEventListener('change', syncBatchValueInput);
+
+$('#batchAutoActivitiesBtn').addEventListener('click', async () => {
+  const ids = Array.from(state.selected);
+  if (ids.length === 0) return showBatchMessage('没有勾选成员');
+  if (!await confirmDialog('将按每位成员自己的两条活动回忆名称生成活动记录；没有活动回忆名称的成员会跳过。10 秒内可在提示里撤销。', { title: '自动生成活动记录' })) return;
+
+  const button = $('#batchAutoActivitiesBtn');
+  button.disabled = true;
+  try {
+    const result = await request('/students/batch', { method: 'POST', body: { studentIds: ids, autoActivities: true } });
+    $('#batchOverlay').hidden = true;
+    clearSelection();
+    await loadStudents();
+    toast(`已为 ${result.updated} 位成员生成活动记录`
+      + (result.skipped.length ? `，跳过 ${result.skipped.length} 位（没有活动回忆名称）` : ''), undoToast(result.undo));
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showBatchMessage(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
 
 const BATCH_NUMERIC_FIELDS = new Set(['volunteerHours', 'activityCount', 'partnerCount']);
 
@@ -504,7 +535,7 @@ $('#batchForm').addEventListener('submit', async (event) => {
 
   const label = $('#batchField').selectedOptions[0].textContent;
   const shown = String(raw).trim() || '（清空）';
-  if (!await confirmDialog(`确定把 ${ids.length} 位成员的「${label}」改成「${shown}」吗？（改错的话，10 秒内可在屏幕下方的提示里点「撤销」还原）`, { title: '批量修改' })) return;
+  if (!await confirmDialog(`确定把 ${ids.length} 位成员的「${label}」改成「${shown}」吗？（改错的话，10 秒内可在屏幕下方的提示里点「撤销」还原）`, { title: '批量编辑' })) return;
 
   const submit = $('#batchForm button[type="submit"]');
   submit.disabled = true;
@@ -637,6 +668,16 @@ function closeEditor() {
 }
 
 $('#editorCancel').addEventListener('click', closeEditor);
+
+$('#fillActivitiesBtn').addEventListener('click', () => {
+  const names = [...new Set([
+    $('#f_activity1Name').value.trim(),
+    $('#f_activity2Name').value.trim(),
+  ].filter(Boolean))];
+  if (names.length === 0) return alertDialog('请先填写至少一个活动回忆的名称');
+  $('#f_activities').value = names.join('、');
+  toast('已从活动回忆生成活动记录');
+});
 
 function numberOrNull(value) {
   const text = String(value ?? '').trim();
@@ -2450,14 +2491,14 @@ function addLayoutExtra() {
   elements.push(element);
   state.layoutSelectedId = element.id;
   renderLayoutEditor();
-  toast(`已添加成员照片 ${slot}，可拖动或缩放`);
+  toast(`已添加图片槽位 ${slot}，可拖动或缩放`);
 }
 
 function fillLayoutExtras() {
   if (!state.themeDraft) return;
   const elements = layoutPageElements();
   const defaults = defaultExtraSlots(currentLayoutPage(), elements);
-  if (defaults.length === 0) return toast('这一页没有默认照片槽位，请用「添加成员照片」', { type: 'info' });
+  if (defaults.length === 0) return toast('这一页没有默认照片槽位，请用「添加图片槽位」', { type: 'info' });
   const used = new Set(elements.filter(element => element.type === 'extra').map(element => element.slot));
   const added = defaults.filter(item => !used.has(item.slot));
   if (added.length === 0) return toast('照片槽位已经齐了', { type: 'info' });
@@ -2579,7 +2620,7 @@ function layoutEditorNode(element, sample) {
     } else {
       const placeholder = document.createElement('div');
       placeholder.className = 'layout-photo-placeholder';
-      placeholder.textContent = `成员照片 ${element.slot || 1}（预览成员暂无）`;
+      placeholder.textContent = `图片槽位 ${element.slot || 1}（预览成员暂无）`;
       node.append(placeholder);
     }
   } else {
@@ -2709,11 +2750,11 @@ function renderLayoutElementList() {
     const main = el('div', 'row-main');
     const isExtra = element.type === 'extra';
     const label = isExtra
-      ? `成员照片 ${element.slot || 1}`
+      ? `图片槽位 ${element.slot || 1}`
       : element.type === 'image'
         ? '装饰图片'
         : (element.text || '（空文字）');
-    const kind = isExtra ? '成员照片' : element.type === 'image' ? '装饰图片' : '文字';
+    const kind = isExtra ? '图片槽位' : element.type === 'image' ? '装饰图片' : '文字';
     main.append(el('strong', null, String(label).slice(0, 24)));
     main.append(el('span', 'muted', `${kind} · x ${Math.round(element.x)} · y ${Math.round(element.y)} · 宽 ${Math.round(element.w)}`));
     row.append(main);
@@ -2770,7 +2811,7 @@ function renderLayoutProperties() {
     $('#layoutAlign').value = element.align;
   } else {
     $('#layoutImageInfo').textContent = isExtra
-      ? `成员照片 ${element.slot || 1}（按归属页面从该成员上传的附加图片里取第 ${element.slot || 1} 张）`
+      ? `图片槽位 ${element.slot || 1}（按归属页面从该成员上传的附加图片里取第 ${element.slot || 1} 张）`
       : element.src;
     if (isExtra) $('#layoutSlot').value = String(element.slot || 1);
     $('#layoutFit').value = element.fit;
@@ -2796,12 +2837,16 @@ function updateSelectedLayoutElement(patch) {
 function renderLayoutEditor() {
   if (!isLayoutMode() || !state.themeDraft) return;
   renderLayoutPageSelect();
+  const page = currentLayoutPage();
+  if (page && layoutPageElements().length === 0) {
+    setLayoutPageElements(state.layoutPageKey, defaultLayoutTemplate(page));
+  }
   if (!layoutPageElements().some(element => element.id === state.layoutSelectedId)) state.layoutSelectedId = '';
   renderLayoutCanvas();
   const key = state.layoutPageKey;
   const count = layoutPageElements(key).length;
   const source = state.layoutPreviewData ? '背景与示例数据来自预览成员' : '暂无预览成员，使用示例数据';
-  $('#layoutMeta').textContent = `${pageName(key)} · ${count ? `${count} 个元素` : '还没有排版；点「从当前样式生成」开始'}（${source}）`;
+  $('#layoutMeta').textContent = `${pageName(key)} · ${count} 个元素（${source}）`;
   renderLayoutElementList();
   renderLayoutProperties();
   if (state.meta && state.meta.pageKeys) {
@@ -2835,22 +2880,12 @@ async function loadLayoutPreview(force = false) {
   renderLayoutEditor();
 }
 
-async function seedLayout() {
-  if (!state.themeDraft) return;
-  if (layoutPageElements().length > 0) {
-    if (!await confirmDialog('这一页已有排版，用默认样式覆盖吗？', { title: '生成默认排版', confirmText: '覆盖' })) return;
-  }
-  setLayoutPageElements(state.layoutPageKey, defaultLayoutTemplate((state.meta.pages || []).find(item => item.key === state.layoutPageKey)));
-  state.layoutSelectedId = '';
-  renderLayoutEditor();
-  toast('已生成默认排版，可继续拖动调整');
-}
-
 async function resetLayout() {
   if (!state.themeDraft) return;
-  if (layoutPageElements().length === 0) return toast('这一页本来就是默认排版', { type: 'info' });
-  if (!await confirmDialog('恢复默认排版后，这一页的自定义元素会全部删除（保存主题后生效）。', { title: '恢复默认排版', confirmText: '恢复', danger: true })) return;
-  setLayoutPageElements(state.layoutPageKey, []);
+  const page = currentLayoutPage();
+  if (!page) return;
+  if (!await confirmDialog('恢复默认排版会丢弃这一页的自定义调整，回到当前默认样式（保存主题后生效）。', { title: '恢复默认排版', confirmText: '恢复', danger: true })) return;
+  setLayoutPageElements(state.layoutPageKey, defaultLayoutTemplate(page));
   state.layoutSelectedId = '';
   renderLayoutEditor();
   toast('已恢复默认排版，记得保存主题');
@@ -2917,7 +2952,6 @@ $('#layoutPage').addEventListener('change', (event) => {
   state.layoutSelectedId = '';
   renderLayoutEditor();
 });
-$('#layoutSeedBtn').addEventListener('click', seedLayout);
 $('#layoutResetBtn').addEventListener('click', resetLayout);
 $('#layoutAddText').addEventListener('click', addLayoutText);
 $('#layoutAddExtra').addEventListener('click', addLayoutExtra);

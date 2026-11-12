@@ -460,7 +460,12 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
 
   const BATCH_LIMIT = 500;
   // 允许批量设置的字段（学号/姓名/密码不能批量改，密码走独立的「重置」）
-  const BATCH_FIELDS = ['department', 'joinDate', 'volunteerHours', 'activityCount', 'partnerCount', 'keyword', 'keywordReason', 'message', 'bgDir', 'bgMusic', 'theme'];
+  const BATCH_FIELDS = [
+    'department', 'joinDate', 'volunteerHours', 'activityCount',
+    'activities', 'activity1Name', 'activity1Date', 'activity1Work',
+    'activity2Name', 'activity2Date', 'activity2Work',
+    'partnerCount', 'keyword', 'keywordReason', 'message', 'bgDir', 'bgMusic', 'theme',
+  ];
 
   function readBatchIds(body) {
     const list = Array.isArray(body && body.studentIds) ? body.studentIds : [];
@@ -484,10 +489,11 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
       const set = body.set && typeof body.set === 'object' ? body.set : {};
       const fields = Object.keys(set);
       const unknown = fields.filter(key => !BATCH_FIELDS.includes(key));
-      if (unknown.length > 0) return res.status(400).json({ error: `不支持批量修改这些字段：${unknown.join('、')}` });
+      if (unknown.length > 0) return res.status(400).json({ error: `不支持批量编辑这些字段：${unknown.join('、')}` });
 
       const resetPassword = body.resetPasswordToDefault === true;
-      if (fields.length === 0 && !resetPassword) return res.status(400).json({ error: '没有要修改的内容' });
+      const autoActivities = body.autoActivities === true;
+      if (fields.length === 0 && !resetPassword && !autoActivities) return res.status(400).json({ error: '没有要修改的内容' });
 
       const before = snapshotStudents(ids); // 改动前的快照，供「撤销」还原
 
@@ -501,6 +507,18 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
         }
         const merged = toStudentDto(existing);
         merged.password = resetPassword ? studentId.slice(-6) : '';
+
+        if (autoActivities) {
+          const names = [merged.activity1Name, merged.activity2Name]
+            .map(name => (name ? String(name).trim() : ''))
+            .filter(Boolean);
+          if (names.length === 0) {
+            skipped.push({ studentId, message: '没有活动回忆名称' });
+            continue;
+          }
+          merged.activities = [...new Set(names)].join('、');
+        }
+
         for (const key of fields) merged[key] = set[key];
 
         const plan = records.planRecords(db, [planSingle(merged.studentId, merged)]);
@@ -527,7 +545,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
         skipped,
         passwordReset: passwordResetIds.length,
         otherSessionsRemoved,
-        undo: undos.remember('批量修改', before),
+        undo: undos.remember('批量编辑', before),
       });
     } catch (err) {
       next(err);

@@ -51,7 +51,7 @@
       <div id="batchBar" class="batch-bar" hidden>
         <span id="batchCount"></span>
         <span class="grow"></span>
-        <button id="batchEditBtn" class="primary" type="button">批量修改</button>
+        <button id="batchEditBtn" class="primary" type="button">批量编辑</button>
         <button id="batchMediaBtn" class="primary" type="button">批量媒体</button>
         <button id="batchThemeBtn" class="primary" type="button">应用主题</button>
         <button id="batchExportBtn" class="ghost" type="button">导出所选</button>
@@ -130,6 +130,8 @@
 
     <!-- 导入导出 -->
     <section id="tab-io" class="tab-panel" hidden>
+      <p class="muted">「活动记录」留空时，会自动用同一行的两条活动回忆名称生成。</p>
+      <p class="muted">密码列留空：已有成员保留原密码；新成员自动用「学号后六位」作为初始密码。</p>
       <h2>批量添加 / 更新（粘贴文本）</h2>
       <p class="muted">每行一名成员，字段顺序：<code id="headerHint"></code>。逗号或 Tab 分隔，字段内含逗号请用双引号包起来；空行与 <code>#</code> 开头的行会忽略。一行就是单条，多行就是多条。</p>
       <textarea id="importText" class="field" rows="6" placeholder="2021004,init123456,王五,外联部,2024-09-01,60,8,迎新晚会、支教,迎新晚会,2026-09-10,现场统筹,支教,2026-07-15,课程设计,12,现场定心丸,总能稳住场面,继续加油,,"></textarea>
@@ -269,8 +271,7 @@
         <div class="toolbar">
           <label class="field-label" for="layoutPage">页面</label>
           <select id="layoutPage" class="field select-narrow"></select>
-          <button id="layoutSeedBtn" class="ghost" type="button">从当前样式生成</button>
-          <button id="layoutAddExtra" class="ghost" type="button">添加成员照片</button>
+          <button id="layoutAddExtra" class="ghost" type="button">添加图片槽位</button>
           <button id="layoutFillExtras" class="ghost" type="button">补齐照片槽位</button>
           <button id="layoutResetBtn" class="danger" type="button">恢复默认排版</button>
         </div>
@@ -409,6 +410,10 @@
       <label>主题<select id="f_theme" class="field"></select></label>
     </div>
     <label>活动记录（用、分隔）<input id="f_activities" class="field" type="text" maxlength="2000" placeholder="迎新晚会、支教、校运会"></label>
+    <div class="toolbar">
+      <button id="fillActivitiesBtn" class="ghost" type="button">从两个活动回忆生成活动记录</button>
+    </div>
+    <p class="muted">活动记录留空保存时，会自动用两条活动回忆的名称生成。</p>
     <h3>活动回忆①</h3>
     <div class="grid">
       <label>活动名称<input id="f_activity1Name" class="field" type="text" maxlength="100"></label>
@@ -447,17 +452,24 @@
   </div>
 </div>
 
-<!-- 批量修改 -->
+<!-- 批量编辑 -->
 <div id="batchOverlay" class="overlay" hidden>
   <form id="batchForm" class="card editor" novalidate>
-    <h2>批量修改</h2>
+    <h2>批量编辑</h2>
     <p id="batchSummary" class="muted"></p>
-    <label>要修改的字段
+    <label>要编辑的字段
       <select id="batchField" class="field">
         <option value="department">部门</option>
         <option value="joinDate">入会日期</option>
         <option value="volunteerHours">志愿时长</option>
         <option value="activityCount">活动次数</option>
+        <option value="activities">活动记录</option>
+        <option value="activity1Name">活动一名称</option>
+        <option value="activity1Date">活动一日期</option>
+        <option value="activity1Work">活动一工作</option>
+        <option value="activity2Name">活动二名称</option>
+        <option value="activity2Date">活动二日期</option>
+        <option value="activity2Work">活动二工作</option>
         <option value="partnerCount">伙伴人数</option>
         <option value="keyword">年度关键词</option>
         <option value="keywordReason">关键词依据</option>
@@ -469,6 +481,10 @@
     <label>新值
       <input id="batchValue" class="field" type="text" placeholder="留空表示清空该字段">
     </label>
+    <p id="batchFieldHint" class="muted" hidden></p>
+    <div class="toolbar" id="batchAutoActivitiesRow" hidden>
+      <button id="batchAutoActivitiesBtn" class="ghost" type="button">按成员依次自动生成活动记录</button>
+    </div>
     <p class="muted">注意：清空「背景图目录」或「背景音乐」会让这些成员回到默认规则（学号目录 / 与学号同名的音乐）。</p>
     <p id="batchMessage" class="msg error" hidden></p>
     <div class="toolbar">
