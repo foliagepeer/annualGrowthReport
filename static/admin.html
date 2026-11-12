@@ -78,6 +78,20 @@
       <h2>共享背景图（所有成员的默认图）</h2>
       <div id="sharedSlots" class="slots"></div>
 
+      <h2>该成员的附加图片</h2>
+      <p class="muted">选择归属页面后一次上传多张；每张图片会自动单独成页，插在该页之后，不需要拖动或调大小。同页内按文件名排序（建议 <code>01-xxx.jpg</code>、<code>02-xxx.jpg</code>）。</p>
+      <div class="toolbar">
+        <label class="field-label" for="extraPageKey">归属页面</label>
+        <select id="extraPageKey" class="field select-narrow"></select>
+        <label class="ghost file-picker">选择图片（可多选）
+          <input id="extraFiles" type="file" accept="image/*" multiple hidden>
+        </label>
+        <label class="check-all"><input id="extraOverwrite" type="checkbox"> 同名覆盖</label>
+        <button id="uploadExtraBtn" class="primary" type="button">上传附加图片</button>
+      </div>
+      <p id="extraProgress" class="muted"></p>
+      <div id="extraList" class="list"></div>
+
       <h2>背景音乐</h2>
       <p class="muted">文件名与学号同名时该成员自动使用；也可以在下面为选中成员单独指定，或共用同一首。</p>
       <div class="toolbar">
@@ -256,6 +270,8 @@
           <label class="field-label" for="layoutPage">页面</label>
           <select id="layoutPage" class="field select-narrow"></select>
           <button id="layoutSeedBtn" class="ghost" type="button">从当前样式生成</button>
+          <button id="layoutAddExtra" class="ghost" type="button">添加成员照片</button>
+          <button id="layoutFillExtras" class="ghost" type="button">补齐照片槽位</button>
           <button id="layoutResetBtn" class="danger" type="button">恢复默认排版</button>
         </div>
         <p id="layoutMeta" class="muted"></p>
@@ -273,6 +289,12 @@
             </div>
             <div id="layoutElementList" class="list"></div>
             <div id="layoutProps" hidden>
+              <div class="grid">
+                <label>X<input id="layoutX" class="field" type="number" min="0" max="390" step="1"></label>
+                <label>Y<input id="layoutY" class="field" type="number" min="0" max="844" step="1"></label>
+                <label>宽<input id="layoutW" class="field" type="number" min="40" max="390" step="1"></label>
+                <label id="layoutHRow">高<input id="layoutH" class="field" type="number" min="20" max="844" step="1"></label>
+              </div>
               <label id="layoutTextRow">文字内容<textarea id="layoutText" class="field" rows="3"></textarea></label>
               <div class="grid">
                 <label id="layoutUnitRow">单位<input id="layoutUnit" class="field" maxlength="8" placeholder="如：天"></label>
@@ -300,11 +322,20 @@
               <div id="layoutImageProps" hidden>
                 <p id="layoutImageInfo" class="muted"></p>
                 <div class="grid">
+                  <label id="layoutSlotRow" hidden>照片序号
+                    <select id="layoutSlot" class="field">
+                      <option value="1">第 1 张</option>
+                      <option value="2">第 2 张</option>
+                      <option value="3">第 3 张</option>
+                      <option value="4">第 4 张</option>
+                      <option value="5">第 5 张</option>
+                      <option value="6">第 6 张</option>
+                    </select>
+                  </label>
                   <label>填充方式<select id="layoutFit" class="field">
                     <option value="contain">完整显示</option>
                     <option value="cover">裁剪铺满</option>
                   </select></label>
-                  <label>高度<input id="layoutH" class="field" type="number" min="10" max="844"></label>
                   <label>圆角<input id="layoutRadius" class="field" type="number" min="0" max="100"></label>
                 </div>
               </div>
@@ -508,7 +539,7 @@
     <h2>应用主题</h2>
     <p id="themeAssignSummary" class="muted"></p>
     <label>主题<select id="themeAssignSelect" class="field"></select></label>
-    <p class="muted">选「默认主题」会清除这些成员的单独主题设置。主题配置的修改会立即影响所有使用者；批量应用本身可在 10 秒内撤销。</p>
+    <p class="muted">选「默认主题」会清除成员的单独主题设置。主题配置的修改会立即影响所有使用者；应用主题这个动作本身可在 10 秒内撤销。</p>
     <div class="toolbar">
       <button class="primary" type="submit">应用</button>
       <button id="themeAssignCancel" class="ghost" type="button">取消</button>

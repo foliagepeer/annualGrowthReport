@@ -177,6 +177,36 @@ body {
   max-width: 420px;
 }
 
+/* 成员附加图片：未进入排版槽位时的兜底展示 */
+.page-extra-gallery {
+  position: absolute;
+  left: 50%;
+  bottom: calc(72px + env(safe-area-inset-bottom));
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  width: min(78%, 320px);
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(5, 8, 16, 0.35);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.page-extra-gallery.is-single {
+  grid-template-columns: 1fr;
+  width: min(60%, 240px);
+}
+
+.page-extra-gallery img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
 /* 背景图加载成功后的压暗层，保证文字可读；颜色与强度可被主题/单页覆盖 */
 .page.has-bg::after {
   content: "";
@@ -332,6 +362,7 @@ body {
 .message.work {
   font-size: 15px;
   line-height: 1.9;
+  text-align: center;
   color: var(--text-dim);
 }
 

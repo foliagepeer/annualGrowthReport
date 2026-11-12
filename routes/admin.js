@@ -563,6 +563,68 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     res.json(report.buildReport(db, row, themeId));
   });
 
+  /* ---------- 成员附加图片（按页插入，单独成页） ---------- */
+
+  router.get('/students/:studentId/photos', requireAdmin, (req, res) => {
+    const student = findStudent.get(req.params.studentId);
+    if (!student) return res.status(404).json({ error: '成员不存在' });
+    const pageList = pages.listPages(db);
+    const groups = {};
+    for (const page of pageList) {
+      const files = media.listExtraPhotos(student.student_id, page.key);
+      if (files.length > 0) groups[page.key] = files;
+    }
+    res.json({ pages: pageList, groups });
+  });
+
+  router.post('/students/:studentId/photos', requireAdmin, rawBody, (req, res, next) => {
+    try {
+      const student = findStudent.get(req.params.studentId);
+      if (!student) return res.status(404).json({ error: '成员不存在' });
+      const pageKey = String(req.query.pageKey || '');
+      if (!pages.getPage(db, pageKey)) return res.status(400).json({ error: '归属页面不存在' });
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ error: '没有收到图片内容' });
+      if (req.body.length > KIND_LIMITS.image) {
+        return res.status(413).json({ error: `图片不能超过 ${Math.round(KIND_LIMITS.image / 1024 / 1024)}MB` });
+      }
+
+      const wanted = String(req.query.name || '').trim() || decodeHeaderName(req);
+      let target;
+      try {
+        target = media.resolveExtraPhotoPath(student.student_id, pageKey, wanted);
+      } catch (error) {
+        return res.status(400).json({ error: error.message });
+      }
+
+      const exists = fs.existsSync(target);
+      if (exists && req.query.overwrite !== '1') {
+        return res.status(409).json({ error: '同名图片已存在', existing: wanted });
+      }
+      media.atomicWrite(target, req.body);
+      const file = media.listExtraPhotos(student.student_id, pageKey).find(entry => entry.name === path.basename(target));
+      res.status(exists ? 200 : 201).json({ success: true, overwritten: exists, file });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete('/students/:studentId/photos', requireAdmin, (req, res) => {
+    const student = findStudent.get(req.params.studentId);
+    if (!student) return res.status(404).json({ error: '成员不存在' });
+    const pageKey = String(req.query.pageKey || '');
+    const name = String(req.query.name || '');
+    let target;
+    try {
+      target = media.resolveExtraPhotoPath(student.student_id, pageKey, name);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+    if (!fs.existsSync(target)) return res.status(404).json({ error: '图片不存在' });
+    fs.unlinkSync(target);
+    media.removeExtraDirs(student.student_id, pageKey);
+    res.json({ success: true });
+  });
+
   /* ---------- 批量导入（文本 / Excel） ---------- */
 
   function buildPreview(plan, extra = {}) {

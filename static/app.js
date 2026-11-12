@@ -416,22 +416,35 @@ function substituteLayoutText(text, data) {
   });
 }
 
-function renderLayoutElement(element, theme) {
+function layoutImageNode(element, src) {
+  const node = document.createElement('img');
+  node.className = 'layout-el layout-image';
+  node.src = src;
+  node.alt = '';
+  node.loading = 'lazy';
+  node.style.left = `${element.x}px`;
+  node.style.top = `${element.y}px`;
+  node.style.width = `${element.w}px`;
+  node.style.height = `${element.h}px`;
+  node.style.objectFit = element.fit;
+  node.style.opacity = String(element.opacity);
+  node.style.zIndex = String(element.z);
+  if (element.radius) node.style.borderRadius = `${element.radius}px`;
+  return node;
+}
+
+function extraPhotoFor(pageKey, slot) {
+  const photos = (reportData && reportData.extras && reportData.extras[pageKey]) || [];
+  return photos[Math.max(0, (slot || 1) - 1)] || null;
+}
+
+function renderLayoutElement(element, theme, pageKey) {
+  if (element.type === 'extra') {
+    const photo = extraPhotoFor(pageKey, element.slot);
+    return photo ? layoutImageNode(element, photo.url) : null;
+  }
   if (element.type === 'image') {
-    const node = document.createElement('img');
-    node.className = 'layout-el layout-image';
-    node.src = element.src;
-    node.alt = '';
-    node.loading = 'lazy';
-    node.style.left = `${element.x}px`;
-    node.style.top = `${element.y}px`;
-    node.style.width = `${element.w}px`;
-    node.style.height = `${element.h}px`;
-    node.style.objectFit = element.fit;
-    node.style.opacity = String(element.opacity);
-    node.style.zIndex = String(element.z);
-    if (element.radius) node.style.borderRadius = `${element.radius}px`;
-    return node;
+    return layoutImageNode(element, element.src);
   }
 
   const node = document.createElement('span');
@@ -459,21 +472,46 @@ function renderLayoutElement(element, theme) {
   return node;
 }
 
+// 没被排版槽位引用的照片自动兜底展示，避免上传后“消失”
+function renderExtraGallery(page, photos) {
+  if (!photos || photos.length === 0) return;
+  const gallery = document.createElement('div');
+  gallery.className = `page-extra-gallery${photos.length === 1 ? ' is-single' : ''}`;
+  for (const photo of photos.slice(0, 6)) {
+    const img = document.createElement('img');
+    img.src = photo.url;
+    img.alt = '';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    gallery.append(img);
+  }
+  page.append(gallery);
+}
+
 // 有排版的页面隐藏默认文字（结尾页的按钮行保留），改为渲染 390×844 设计稿
 function renderLayout(theme) {
   const layout = (theme && theme.layout) || {};
   document.querySelectorAll('.page[data-bg]').forEach((page) => {
-    page.querySelectorAll('.layout-canvas').forEach(node => node.remove());
-    const spec = layout[page.dataset.bg];
+    page.querySelectorAll('.layout-canvas, .page-extra-gallery').forEach(node => node.remove());
+    const pageKey = page.dataset.bg;
+    const photos = (reportData && reportData.extras && reportData.extras[pageKey]) || [];
+    const spec = layout[pageKey];
     if (!spec || !Array.isArray(spec.elements) || spec.elements.length === 0) {
       page.classList.remove('layout-active');
+      renderExtraGallery(page, photos);
       return;
     }
     page.classList.add('layout-active');
     const canvas = document.createElement('div');
     canvas.className = 'layout-canvas';
-    for (const element of spec.elements) canvas.append(renderLayoutElement(element, theme));
+    for (const element of spec.elements) {
+      const node = renderLayoutElement(element, theme, pageKey);
+      if (node) canvas.append(node);
+    }
     page.append(canvas);
+
+    const usedSlots = new Set(spec.elements.filter(element => element.type === 'extra').map(element => element.slot));
+    renderExtraGallery(page, photos.filter((_, index) => !usedSlots.has(index + 1)));
   });
 }
 
@@ -603,8 +641,9 @@ function enterReport(data) {
   const slides = wrapper.querySelectorAll('.swiper-slide');
   const lastSlide = slides[slides.length - 1] || null;
   if (lastSlide) {
-    const inner = lastSlide.querySelector('.page-inner');
-    if (inner) inner.append(endingActions);
+    // 正常都有 .page-inner；兜底挂到 slide 上，避免自定义页面丢按钮
+    const host = lastSlide.querySelector('.page-inner') || lastSlide;
+    host.append(endingActions);
     endingActions.hidden = false;
   } else {
     endingActions.hidden = true;

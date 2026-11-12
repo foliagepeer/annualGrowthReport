@@ -6,6 +6,7 @@ const state = {
   keyword: '',
   selected: new Set(),
   media: null,
+  mediaExtras: null,
   mediaStudentId: '',
   preview: { source: null, text: '', file: null },
   reportPreview: null,
@@ -15,6 +16,7 @@ const state = {
   themeEditingId: '',
   themeDraft: null,
   previewStudentId: '',
+  themeAssignStudentId: '',
   themeMode: 'style',
   layoutPageKey: '01-cover',
   layoutSelectedId: '',
@@ -246,6 +248,7 @@ async function enterPanel() {
   }
   await loadStudents();
   await loadMedia();
+  await loadExtras();
   renderPages();
   if (state.meta.features && state.meta.features.theme) {
     try {
@@ -374,6 +377,7 @@ function renderStudents() {
       state.mediaStudentId = item.studentId;
       renderMedia();
     }));
+    actions.append(button('主题', 'ghost', () => openThemeAssign(item)));
     actions.append(button('预览', 'ghost', () => previewReport(item)));
     actions.append(button('删除', 'danger', () => removeStudent(item)));
     card.append(actions);
@@ -973,6 +977,101 @@ async function loadMedia() {
   renderMedia();
 }
 
+function renderExtraPageOptions() {
+  const select = $('#extraPageKey');
+  if (!select || !state.meta) return;
+  const previous = select.value;
+  select.textContent = '';
+  for (const page of state.meta.pages || []) {
+    const option = el('option', null, `${page.title}（${page.key}）${page.enabled ? '' : ' · 已停用'}`);
+    option.value = page.key;
+    select.append(option);
+  }
+  if (previous && [...select.options].some(option => option.value === previous)) select.value = previous;
+}
+
+async function loadExtras() {
+  if (!state.mediaStudentId) {
+    state.mediaExtras = null;
+    renderExtras();
+    return;
+  }
+  try {
+    state.mediaExtras = await request(`/students/${encodeURIComponent(state.mediaStudentId)}/photos`);
+  } catch (error) {
+    state.mediaExtras = null;
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+  renderExtras();
+}
+
+function renderExtras() {
+  const box = $('#extraList');
+  if (!box) return;
+  box.textContent = '';
+  const data = state.mediaExtras;
+  if (!data || !data.pages || !data.groups || Object.keys(data.groups).length === 0) {
+    box.append(el('p', 'muted', state.mediaStudentId ? '这个成员还没有附加图片' : '还没有成员'));
+    return;
+  }
+  for (const page of data.pages) {
+    const files = data.groups[page.key] || [];
+    if (files.length === 0) continue;
+    const group = el('div', 'extra-group');
+    const head = el('div', 'row-head');
+    head.append(el('strong', null, page.title));
+    head.append(el('span', 'muted', `${page.key} · ${files.length} 张 · 插在该页之后`));
+    group.append(head);
+    const grid = el('div', 'slots');
+    for (const file of files) {
+      const card = el('div', 'slot');
+      const thumb = el('div', 'thumb');
+      thumb.style.backgroundImage = `url("${file.url}")`;
+      card.append(thumb);
+      card.append(el('div', 'slot-name', file.name));
+      card.append(el('div', 'muted', `${Math.round(file.size / 1024)}KB`));
+      card.append(button('删除', 'ghost', () => deleteExtraPhoto(page.key, file.name)));
+      grid.append(card);
+    }
+    group.append(grid);
+    box.append(group);
+  }
+  if (!box.childNodes.length) box.append(el('p', 'muted', '这个成员还没有附加图片'));
+}
+
+async function uploadExtraPhoto(file, pageKey, overwrite) {
+  const extensions = (state.meta && state.meta.extensions && state.meta.extensions.image) || [];
+  const ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+  if (!extensions.includes(ext)) {
+    throw new Error(`只支持 ${extensions.join(' / ')} 格式；iPhone 的 HEIC 请先转成 JPG 再传`);
+  }
+  if (file.size > state.meta.limits.image) {
+    throw new Error(`图片不能超过 ${Math.round(state.meta.limits.image / 1024 / 1024)}MB`);
+  }
+  const query = new URLSearchParams({ pageKey, name: file.name });
+  if (overwrite) query.set('overwrite', '1');
+  return request(`/students/${encodeURIComponent(state.mediaStudentId)}/photos?${query.toString()}`, {
+    method: 'POST',
+    raw: true,
+    headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) },
+    body: file,
+  });
+}
+
+async function deleteExtraPhoto(pageKey, name) {
+  if (!await confirmDialog(`确定删除「${name}」吗？图片文件删除后无法撤销。`, { title: '删除附加图片', confirmText: '删除', danger: true })) return;
+  try {
+    const query = new URLSearchParams({ pageKey, name });
+    await request(`/students/${encodeURIComponent(state.mediaStudentId)}/photos?${query.toString()}`, { method: 'DELETE' });
+    await loadExtras();
+    toast('已删除附加图片');
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+}
+
 function pickActive(files, key, extensions) {
   const candidates = files.filter(file => file.key === key && file.supported);
   if (candidates.length === 0) return null;
@@ -981,6 +1080,7 @@ function pickActive(files, key, extensions) {
 
 function renderMedia() {
   if (!state.media) return;
+  renderExtraPageOptions();
   if (!state.meta.extensions) {
     for (const selector of ['#ownSlots', '#sharedSlots', '#musicList']) {
       const box = $(selector);
@@ -1159,6 +1259,48 @@ async function assignMusic(student, name, disable = false) {
 $('#mediaStudent').addEventListener('change', (event) => {
   state.mediaStudentId = event.target.value;
   renderMedia();
+  loadExtras();
+});
+
+$('#extraFiles').addEventListener('change', (event) => {
+  const files = [...(event.target.files || [])];
+  $('#extraProgress').textContent = files.length ? `已选择 ${files.length} 张图片` : '';
+});
+
+$('#uploadExtraBtn').addEventListener('click', async () => {
+  const input = $('#extraFiles');
+  const files = [...(input.files || [])];
+  if (files.length === 0) return alertDialog('请先选择图片');
+  const pageKey = $('#extraPageKey').value;
+  if (!pageKey) return alertDialog('请先选择归属页面');
+
+  let ok = 0;
+  let failed = 0;
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index];
+    $('#extraProgress').textContent = `正在上传 ${index + 1}/${files.length}：${file.name}`;
+    try {
+      await uploadExtraPhoto(file, pageKey, $('#extraOverwrite').checked);
+      ok += 1;
+    } catch (error) {
+      if (error.status === 409 && await confirmDialog(`「${file.name}」已存在，要覆盖吗？`, { title: '覆盖图片', confirmText: '覆盖' })) {
+        try {
+          await uploadExtraPhoto(file, pageKey, true);
+          ok += 1;
+          continue;
+        } catch (retryError) {
+          error = retryError;
+        }
+      }
+      if (error.status === 401) return showLogin('登录已过期，请重新登录');
+      failed += 1;
+      showError(error);
+    }
+  }
+  input.value = '';
+  await loadExtras();
+  $('#extraProgress').textContent = `完成：成功 ${ok} 张${failed ? `，失败 ${failed} 张` : ''}`;
+  toast(`已上传 ${ok} 张附加图片${failed ? `，${failed} 张失败` : ''}`, { type: failed ? 'warn' : 'info' });
 });
 
 $('#musicFile').addEventListener('change', (event) => {
@@ -2014,29 +2156,50 @@ $('#themeDeleteBtn').addEventListener('click', async () => {
   }
 });
 
+function openThemeAssign(item) {
+  state.themeAssignStudentId = item.studentId;
+  $('#themeAssignSummary').textContent = `给 ${item.name}（${item.studentId}）单独设置主题`;
+  renderThemeSelects();
+  $('#themeAssignSelect').value = item.theme || '';
+  $('#themeAssignOverlay').hidden = false;
+}
+
 $('#batchThemeBtn').addEventListener('click', () => {
   if (state.selected.size === 0) return;
+  state.themeAssignStudentId = '';
   $('#themeAssignSummary').textContent = `将给已勾选的 ${state.selected.size} 位成员应用主题`;
   renderThemeSelects();
   $('#themeAssignSelect').value = '';
   $('#themeAssignOverlay').hidden = false;
 });
 
-$('#themeAssignCancel').addEventListener('click', () => { $('#themeAssignOverlay').hidden = true; });
+$('#themeAssignCancel').addEventListener('click', () => {
+  state.themeAssignStudentId = '';
+  $('#themeAssignOverlay').hidden = true;
+});
 
 $('#themeAssignForm').addEventListener('submit', async (event) => {
   event.preventDefault();
-  const ids = Array.from(state.selected);
+  const singleId = state.themeAssignStudentId;
+  const ids = singleId ? [singleId] : Array.from(state.selected);
   if (ids.length === 0) return;
   const themeId = $('#themeAssignSelect').value;
   const theme = themeId ? themeById(themeId) : null;
   const label = theme ? theme.name : '默认主题';
-  if (!await confirmDialog(`确定给这 ${ids.length} 位成员应用「${label}」吗？10 秒内可在右下角提示里撤销。`, { title: '应用主题', confirmText: '应用' })) return;
+  const who = singleId
+    ? `给 ${(state.students.find(item => item.studentId === singleId) || {}).name || singleId} 应用「${label}」`
+    : `给这 ${ids.length} 位成员应用「${label}」`;
+  if (!await confirmDialog(`确定${who}吗？10 秒内可在右下角提示里撤销。`, { title: '应用主题', confirmText: '应用' })) return;
   try {
     const result = await request('/students/batch', { method: 'POST', body: { studentIds: ids, set: { theme: themeId } } });
     $('#themeAssignOverlay').hidden = true;
-    clearSelection();
-    await loadStudents();
+    state.themeAssignStudentId = '';
+    if (singleId) {
+      await loadStudents();
+    } else {
+      clearSelection();
+      await loadStudents();
+    }
     toast(`已为 ${result.updated} 位成员应用主题`, undoToast(result.undo));
   } catch (error) {
     if (error.status === 401) return showLogin('登录已过期，请重新登录');
@@ -2139,6 +2302,7 @@ function layoutSample() {
     keywordReason: data.keywordReason,
     message: data.message,
     reportYear: data.reportYear,
+    extras: data.extras || {},
   };
 }
 
@@ -2153,6 +2317,12 @@ function defaultLayoutTemplate(page) {
   });
   const name = (id, y, text, size = 42) => line(id, y, text, { font: 'display', size, weight: 700, lineHeight: 1.25, opacity: 1 });
   const number = (id, y, text, unit) => line(id, y, text, { unit, font: 'display', size: 76, weight: 800, lineHeight: 1, opacity: 1 });
+  const photo = (id, slot, opts = {}) => ({
+    id, type: 'extra', slot,
+    x: opts.x === undefined ? 25 : opts.x, y: opts.y === undefined ? 140 : opts.y,
+    w: opts.w || 160, h: opts.h || 120, fit: opts.fit || 'cover', radius: opts.radius === undefined ? 12 : opts.radius,
+    opacity: 1, z: 1,
+  });
 
   if (type === 'cover') {
     return [
@@ -2189,18 +2359,21 @@ function defaultLayoutTemplate(page) {
   if (type === 'memory') {
     const index = config.index === 2 ? 2 : 1;
     return [
-      line('t-title', 210, '活动回忆'),
-      name('t-name', 250, `{{activity${index}Name}}`, 28),
-      line('t-date', 315, `{{activity${index}Date}}`, { size: 13, opacity: 0.6 }),
-      line('t-work', 355, `{{activity${index}Work}}`, { size: 15, lineHeight: 1.8, align: 'left', opacity: 0.85 }),
-      line('t-sub', 560, index === 1 ? '定格一次投入' : '再看一个瞬间'),
+      line('t-title', 100, '活动回忆'),
+      name('t-name', 150, `{{activity${index}Name}}`, 28),
+      line('t-date', 215, `{{activity${index}Date}}`, { size: 13, opacity: 0.6 }),
+      line('t-work', 255, `{{activity${index}Work}}`, { size: 15, lineHeight: 1.8, opacity: 0.85 }),
+      photo('t-photo-1', 1, { x: 25, y: 380, w: 160, h: 170 }),
+      photo('t-photo-2', 2, { x: 205, y: 380, w: 160, h: 170 }),
+      line('t-sub', 650, index === 1 ? '定格一次投入' : '再看一个瞬间'),
     ];
   }
   if (type === 'partners') {
     return [
-      line('t-line', 240, '同行伙伴'),
-      number('t-num', 280, '{{partnerCount}}', '位'),
-      line('t-sub', 400, '{{partnerCaption}}'),
+      line('t-line', 160, '同行伙伴'),
+      number('t-num', 200, '{{partnerCount}}', '位'),
+      line('t-sub', 320, '{{partnerCaption}}'),
+      photo('t-photo-1', 1, { x: 55, y: 400, w: 280, h: 200, radius: 14 }),
     ];
   }
   if (type === 'keyword') {
@@ -2218,6 +2391,80 @@ function defaultLayoutTemplate(page) {
     ];
   }
   return [];
+}
+
+function estimatedTextHeight(element) {
+  return Math.max(56, Math.round(element.size * element.lineHeight * 2.2));
+}
+
+// 默认放在「承担工作 / 伙伴文案」下面；已有照片槽位时沿用它的高度
+function defaultExtraSlots(page, elements = []) {
+  if (!page) return [];
+  const existing = elements.find(element => element.type === 'extra');
+  if (page.type === 'memory') {
+    const work = elements.find(element => element.type === 'text' && /activity[12]Work/.test(element.text || ''));
+    const sub = elements.find(element => element.type === 'text' && (element.id === 't-sub' || /定格一次投入|再看一个瞬间/.test(element.text || '')));
+    let y = existing ? existing.y : (work ? work.y + estimatedTextHeight(work) + 14 : 380);
+    let h = existing ? existing.h : 170;
+    if (!existing && sub && sub.y > y + 60) h = Math.min(h, sub.y - y - 14);
+    h = Math.max(60, h);
+    y = Math.min(y, 844 - h - 44);
+    return [
+      { slot: 1, x: 25, y, w: 160, h, radius: 12 },
+      { slot: 2, x: 205, y, w: 160, h, radius: 12 },
+    ];
+  }
+  if (page.type === 'partners') {
+    const caption = elements.find(element => element.type === 'text' && /partnerCaption/.test(element.text || ''));
+    let y = existing ? existing.y : (caption ? caption.y + estimatedTextHeight(caption) + 14 : 400);
+    const h = existing ? existing.h : 200;
+    y = Math.min(y, 844 - h - 44);
+    return [{ slot: 1, x: 55, y, w: 280, h, radius: 14 }];
+  }
+  return [];
+}
+
+function currentLayoutPage() {
+  return (state.meta.pages || []).find(page => page.key === state.layoutPageKey) || null;
+}
+
+function makeExtraElement(slot, fallback) {
+  return {
+    id: layoutId(), type: 'extra', slot,
+    x: fallback ? fallback.x : 95, y: fallback ? fallback.y : 340,
+    w: fallback ? fallback.w : 200, h: fallback ? fallback.h : 140,
+    fit: 'cover', radius: fallback && fallback.radius !== undefined ? fallback.radius : 12,
+    opacity: 1, z: 1,
+  };
+}
+
+function addLayoutExtra() {
+  if (!state.themeDraft) return;
+  const elements = layoutPageElements();
+  const used = new Set(elements.filter(element => element.type === 'extra').map(element => element.slot));
+  if (used.size >= 6) return toast('一页最多 6 个照片槽位', { type: 'info' });
+  let slot = 1;
+  while (used.has(slot)) slot += 1;
+  const defaults = defaultExtraSlots(currentLayoutPage(), elements);
+  const element = makeExtraElement(slot, defaults.find(item => item.slot === slot));
+  elements.push(element);
+  state.layoutSelectedId = element.id;
+  renderLayoutEditor();
+  toast(`已添加成员照片 ${slot}，可拖动或缩放`);
+}
+
+function fillLayoutExtras() {
+  if (!state.themeDraft) return;
+  const elements = layoutPageElements();
+  const defaults = defaultExtraSlots(currentLayoutPage(), elements);
+  if (defaults.length === 0) return toast('这一页没有默认照片槽位，请用「添加成员照片」', { type: 'info' });
+  const used = new Set(elements.filter(element => element.type === 'extra').map(element => element.slot));
+  const added = defaults.filter(item => !used.has(item.slot));
+  if (added.length === 0) return toast('照片槽位已经齐了', { type: 'info' });
+  for (const item of added) elements.push(makeExtraElement(item.slot, item));
+  state.layoutSelectedId = elements[elements.length - 1].id;
+  renderLayoutEditor();
+  toast(`已补齐 ${added.length} 个照片槽位`);
 }
 
 function editorFontUrl(ref) {
@@ -2311,17 +2558,30 @@ function layoutEditorNode(element, sample) {
   node.style.opacity = String(element.opacity);
   node.style.zIndex = String(element.z);
 
-  if (element.type === 'image') {
+  if (element.type === 'image' || element.type === 'extra') {
     node.style.height = `${element.h}px`;
-    const img = document.createElement('img');
-    img.src = element.src;
-    img.alt = '';
-    img.draggable = false;
-    img.style.width = '100%';
-    img.style.height = '100%';
-    img.style.objectFit = element.fit;
-    if (element.radius) img.style.borderRadius = `${element.radius}px`;
-    node.append(img);
+    let src = element.src;
+    if (element.type === 'extra') {
+      const photos = (sample && sample.extras && sample.extras[state.layoutPageKey]) || [];
+      const photo = photos[Math.max(0, (element.slot || 1) - 1)];
+      src = photo ? photo.url : '';
+    }
+    if (src) {
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = '';
+      img.draggable = false;
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = element.fit;
+      if (element.radius) img.style.borderRadius = `${element.radius}px`;
+      node.append(img);
+    } else {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'layout-photo-placeholder';
+      placeholder.textContent = `成员照片 ${element.slot || 1}（预览成员暂无）`;
+      node.append(placeholder);
+    }
   } else {
     node.style.color = element.color;
     node.style.fontSize = `${element.size}px`;
@@ -2400,7 +2660,7 @@ function startLayoutResize(event, element, node, handle) {
     moved = true;
     element.w = Math.round(clampLayout(originW + (moveEvent.clientX - startX) / scale, 40, LAYOUT_W - element.x));
     node.style.width = `${element.w}px`;
-    if (element.type === 'image') {
+    if (element.type === 'image' || element.type === 'extra') {
       element.h = Math.round(clampLayout(originH + (moveEvent.clientY - startY) / scale, 20, LAYOUT_H - element.y));
       node.style.height = `${element.h}px`;
     }
@@ -2447,9 +2707,15 @@ function renderLayoutElementList() {
   for (const element of elements) {
     const row = el('div', `row${element.id === state.layoutSelectedId ? ' is-selected' : ''}`);
     const main = el('div', 'row-main');
-    const label = element.type === 'image' ? '图片' : (element.text || '（空文字）');
+    const isExtra = element.type === 'extra';
+    const label = isExtra
+      ? `成员照片 ${element.slot || 1}`
+      : element.type === 'image'
+        ? '装饰图片'
+        : (element.text || '（空文字）');
+    const kind = isExtra ? '成员照片' : element.type === 'image' ? '装饰图片' : '文字';
     main.append(el('strong', null, String(label).slice(0, 24)));
-    main.append(el('span', 'muted', `${element.type === 'image' ? '图片' : '文字'} · x ${Math.round(element.x)} · y ${Math.round(element.y)} · 宽 ${Math.round(element.w)}`));
+    main.append(el('span', 'muted', `${kind} · x ${Math.round(element.x)} · y ${Math.round(element.y)} · 宽 ${Math.round(element.w)}`));
     row.append(main);
     row.addEventListener('click', () => {
       state.layoutSelectedId = element.id;
@@ -2467,22 +2733,25 @@ function renderLayoutProperties() {
     panel.hidden = true;
     return;
   }
-  const isImage = element.type === 'image';
+  const isText = element.type === 'text';
+  const isExtra = element.type === 'extra';
   panel.hidden = false;
 
   for (const id of ['layoutTextRow', 'layoutUnitRow']) {
     const row = $(`#${id}`);
-    if (row) row.hidden = isImage;
+    if (row) row.hidden = !isText;
   }
   for (const id of ['layoutFont', 'layoutSize', 'layoutWeight', 'layoutColor', 'layoutAlign']) {
     const input = $(`#${id}`);
     const label = input && input.closest('label');
-    if (label) label.hidden = isImage;
+    if (label) label.hidden = !isText;
   }
   const imageProps = $('#layoutImageProps');
-  if (imageProps) imageProps.hidden = !isImage;
+  if (imageProps) imageProps.hidden = isText;
+  const slotRow = $('#layoutSlotRow');
+  if (slotRow) slotRow.hidden = !isExtra;
 
-  if (!isImage) {
+  if (isText) {
     $('#layoutText').value = element.text || '';
     $('#layoutUnit').value = element.unit || '';
     const fontSelect = $('#layoutFont');
@@ -2500,11 +2769,18 @@ function renderLayoutProperties() {
     $('#layoutColorHex').value = element.color.toUpperCase();
     $('#layoutAlign').value = element.align;
   } else {
-    $('#layoutImageInfo').textContent = element.src;
+    $('#layoutImageInfo').textContent = isExtra
+      ? `成员照片 ${element.slot || 1}（按归属页面从该成员上传的附加图片里取第 ${element.slot || 1} 张）`
+      : element.src;
+    if (isExtra) $('#layoutSlot').value = String(element.slot || 1);
     $('#layoutFit').value = element.fit;
-    $('#layoutH').value = String(element.h);
     $('#layoutRadius').value = String(element.radius || 0);
   }
+  $('#layoutX').value = String(Math.round(element.x));
+  $('#layoutY').value = String(Math.round(element.y));
+  $('#layoutW').value = String(Math.round(element.w));
+  $('#layoutHRow').hidden = isText;
+  if (!isText) $('#layoutH').value = String(Math.round(element.h));
   $('#layoutOpacity').value = String(element.opacity);
   $('#layoutZ').value = String(element.z);
 }
@@ -2644,6 +2920,12 @@ $('#layoutPage').addEventListener('change', (event) => {
 $('#layoutSeedBtn').addEventListener('click', seedLayout);
 $('#layoutResetBtn').addEventListener('click', resetLayout);
 $('#layoutAddText').addEventListener('click', addLayoutText);
+$('#layoutAddExtra').addEventListener('click', addLayoutExtra);
+$('#layoutFillExtras').addEventListener('click', fillLayoutExtras);
+$('#layoutSlot').addEventListener('change', (event) => {
+  updateSelectedLayoutElement({ slot: Number(event.target.value) || 1 });
+  renderLayoutProperties();
+});
 $('#layoutAddImage').addEventListener('change', (event) => {
   const file = event.target.files && event.target.files[0];
   event.target.value = '';
@@ -2688,12 +2970,26 @@ $('#layoutAlign').addEventListener('change', (event) => updateSelectedLayoutElem
 $('#layoutOpacity').addEventListener('input', (event) => updateSelectedLayoutElement({ opacity: Number(event.target.value) }));
 $('#layoutZ').addEventListener('input', (event) => updateSelectedLayoutElement({ z: Math.round(clampLayout(Number(event.target.value) || 0, 0, 20)) }));
 $('#layoutFit').addEventListener('change', (event) => updateSelectedLayoutElement({ fit: event.target.value }));
-$('#layoutH').addEventListener('input', (event) => {
-  const element = selectedLayoutElement();
-  const max = LAYOUT_H - (element ? element.y : 0);
-  updateSelectedLayoutElement({ h: Math.round(clampLayout(Number(event.target.value) || 120, 10, max)) });
-});
 $('#layoutRadius').addEventListener('input', (event) => updateSelectedLayoutElement({ radius: Math.round(clampLayout(Number(event.target.value) || 0, 0, 100)) }));
+
+function commitLayoutBox(key, raw) {
+  const element = selectedLayoutElement();
+  if (!element) return;
+  const number = Number(raw);
+  if (!Number.isFinite(number)) return renderLayoutProperties();
+  let value = Math.round(number);
+  if (key === 'x') value = Math.round(clampLayout(value, 0, LAYOUT_W - element.w));
+  if (key === 'y') value = Math.round(clampLayout(value, 0, LAYOUT_H - 20));
+  if (key === 'w') value = Math.round(clampLayout(value, 40, LAYOUT_W - element.x));
+  if (key === 'h') value = Math.round(clampLayout(value, 20, LAYOUT_H - element.y));
+  updateSelectedLayoutElement({ [key]: value });
+  renderLayoutProperties();
+}
+
+$('#layoutX').addEventListener('change', (event) => commitLayoutBox('x', event.target.value));
+$('#layoutY').addEventListener('change', (event) => commitLayoutBox('y', event.target.value));
+$('#layoutW').addEventListener('change', (event) => commitLayoutBox('w', event.target.value));
+$('#layoutH').addEventListener('change', (event) => commitLayoutBox('h', event.target.value));
 
 $('#previewStudent').addEventListener('change', () => {
   state.previewStudentId = $('#previewStudent').value;
@@ -2778,6 +3074,7 @@ async function refreshAfterPages() {
     renderLayoutEditor();
   }
   if (state.media) await loadMedia();
+  await loadExtras();
   renderPreviewStudentSelect();
 }
 
