@@ -290,7 +290,7 @@ $('#logoutBtn').addEventListener('click', async () => {
 /* ---------- 标签页 ---------- */
 
 function selectTab(name) {
-  for (const tab of document.querySelectorAll('.tab')) {
+  for (const tab of document.querySelectorAll('.tabs .tab')) {
     tab.classList.toggle('is-active', tab.dataset.tab === name);
   }
   for (const panel of document.querySelectorAll('.tab-panel')) {
@@ -307,7 +307,8 @@ function selectTab(name) {
   }
 }
 
-for (const tab of document.querySelectorAll('.tab')) {
+// 只绑定顶部主导航；排版里的「元素/属性」子页签不使用 data-tab
+for (const tab of document.querySelectorAll('.tabs .tab')) {
   tab.addEventListener('click', () => selectTab(tab.dataset.tab));
 }
 
@@ -2438,7 +2439,7 @@ function estimatedTextHeight(element) {
   return Math.max(56, Math.round(element.size * element.lineHeight * 2.2));
 }
 
-// 默认放在「承担工作 / 伙伴文案」下面；已有照片槽位时沿用它的高度
+// 默认放在「承担工作 / 伙伴文案」下面；已有图片槽位时沿用它的高度
 function defaultExtraSlots(page, elements = []) {
   if (!page) return [];
   const existing = elements.find(element => element.type === 'extra');
@@ -2483,7 +2484,7 @@ function addLayoutExtra() {
   if (!state.themeDraft) return;
   const elements = layoutPageElements();
   const used = new Set(elements.filter(element => element.type === 'extra').map(element => element.slot));
-  if (used.size >= 6) return toast('一页最多 6 个照片槽位', { type: 'info' });
+  if (used.size >= 6) return toast('一页最多 6 个图片槽位', { type: 'info' });
   let slot = 1;
   while (used.has(slot)) slot += 1;
   const defaults = defaultExtraSlots(currentLayoutPage(), elements);
@@ -2491,6 +2492,7 @@ function addLayoutExtra() {
   elements.push(element);
   state.layoutSelectedId = element.id;
   renderLayoutEditor();
+  setLayoutSideTab('props');
   toast(`已添加图片槽位 ${slot}，可拖动或缩放`);
 }
 
@@ -2498,14 +2500,15 @@ function fillLayoutExtras() {
   if (!state.themeDraft) return;
   const elements = layoutPageElements();
   const defaults = defaultExtraSlots(currentLayoutPage(), elements);
-  if (defaults.length === 0) return toast('这一页没有默认照片槽位，请用「添加图片槽位」', { type: 'info' });
+  if (defaults.length === 0) return toast('这一页没有默认图片槽位，请用「添加图片槽位」', { type: 'info' });
   const used = new Set(elements.filter(element => element.type === 'extra').map(element => element.slot));
   const added = defaults.filter(item => !used.has(item.slot));
-  if (added.length === 0) return toast('照片槽位已经齐了', { type: 'info' });
+  if (added.length === 0) return toast('图片槽位已经齐了', { type: 'info' });
   for (const item of added) elements.push(makeExtraElement(item.slot, item));
   state.layoutSelectedId = elements[elements.length - 1].id;
   renderLayoutEditor();
-  toast(`已补齐 ${added.length} 个照片槽位`);
+  setLayoutSideTab('props');
+  toast(`已补齐 ${added.length} 个图片槽位`);
 }
 
 function editorFontUrl(ref) {
@@ -2659,6 +2662,7 @@ function startLayoutDrag(event, element, node) {
   }
   if (!node.querySelector('.layout-resize-handle')) node.append(layoutResizeHandle(element, node));
   renderLayoutProperties();
+  setLayoutSideTab('props');
 
   const rect = $('#layoutCanvas').getBoundingClientRect();
   const scale = rect.width / LAYOUT_W || 1;
@@ -2761,6 +2765,7 @@ function renderLayoutElementList() {
     row.addEventListener('click', () => {
       state.layoutSelectedId = element.id;
       renderLayoutEditor();
+      setLayoutSideTab('props');
     });
     box.append(row);
   }
@@ -2770,9 +2775,20 @@ function renderLayoutProperties() {
   const panel = $('#layoutProps');
   if (!panel) return;
   const element = selectedLayoutElement();
+  const empty = $('#layoutPropsEmpty');
+  const selectedLabel = $('#layoutSelectedLabel');
   if (!element) {
     panel.hidden = true;
+    if (empty) empty.hidden = false;
+    if (selectedLabel) selectedLabel.textContent = '';
     return;
+  }
+  if (empty) empty.hidden = true;
+  if (selectedLabel) {
+    const name = element.type === 'extra'
+      ? `图片槽位 ${element.slot || 1}`
+      : element.type === 'image' ? '装饰图片' : String(element.text || '（空文字）').slice(0, 20);
+    selectedLabel.textContent = `当前：${name}`;
   }
   const isText = element.type === 'text';
   const isExtra = element.type === 'extra';
@@ -2888,6 +2904,7 @@ async function resetLayout() {
   setLayoutPageElements(state.layoutPageKey, defaultLayoutTemplate(page));
   state.layoutSelectedId = '';
   renderLayoutEditor();
+  setLayoutSideTab('list');
   toast('已恢复默认排版，记得保存主题');
 }
 
@@ -2903,6 +2920,7 @@ function addLayoutText() {
   setLayoutPageElements(state.layoutPageKey, elements);
   state.layoutSelectedId = element.id;
   renderLayoutEditor();
+  setLayoutSideTab('props');
 }
 
 async function addLayoutImage(file) {
@@ -2925,11 +2943,23 @@ async function addLayoutImage(file) {
     setLayoutPageElements(state.layoutPageKey, elements);
     state.layoutSelectedId = element.id;
     renderLayoutEditor();
+    setLayoutSideTab('props');
     toast('图片已添加，可拖动调整位置');
   } catch (error) {
     if (error.status === 401) return showLogin('登录已过期，请重新登录');
     showError(error);
   }
+}
+
+function setLayoutSideTab(tab) {
+  const showList = tab !== 'props';
+  const listPane = $('#layoutListPane');
+  const propsPane = $('#layoutPropsPane');
+  if (!listPane || !propsPane) return;
+  listPane.hidden = !showList;
+  propsPane.hidden = showList;
+  $('#layoutTabList').classList.toggle('is-active', showList);
+  $('#layoutTabProps').classList.toggle('is-active', !showList);
 }
 
 function selectThemeMode(mode) {
@@ -2939,6 +2969,7 @@ function selectThemeMode(mode) {
   $('#themeModeStyle').classList.toggle('is-active', mode === 'style');
   $('#themeModeLayout').classList.toggle('is-active', mode === 'layout');
   if (mode === 'layout') {
+    setLayoutSideTab('list');
     renderLayoutPageSelect();
     loadLayoutPreview();
   }
@@ -2946,10 +2977,14 @@ function selectThemeMode(mode) {
 
 $('#themeModeStyle').addEventListener('click', () => selectThemeMode('style'));
 $('#themeModeLayout').addEventListener('click', () => selectThemeMode('layout'));
+$('#layoutTabList').addEventListener('click', () => setLayoutSideTab('list'));
+$('#layoutTabProps').addEventListener('click', () => setLayoutSideTab('props'));
+$('#layoutBackToList').addEventListener('click', () => setLayoutSideTab('list'));
 
 $('#layoutPage').addEventListener('change', (event) => {
   state.layoutPageKey = event.target.value;
   state.layoutSelectedId = '';
+  setLayoutSideTab('list');
   renderLayoutEditor();
 });
 $('#layoutResetBtn').addEventListener('click', resetLayout);
@@ -2971,6 +3006,7 @@ $('#layoutDelete').addEventListener('click', () => {
   setLayoutPageElements(state.layoutPageKey, layoutPageElements().filter(item => item.id !== element.id));
   state.layoutSelectedId = '';
   renderLayoutEditor();
+  setLayoutSideTab('list');
 });
 $('#layoutDuplicate').addEventListener('click', () => {
   const element = selectedLayoutElement();
@@ -2981,6 +3017,7 @@ $('#layoutDuplicate').addEventListener('click', () => {
   setLayoutPageElements(state.layoutPageKey, elements);
   state.layoutSelectedId = copy.id;
   renderLayoutEditor();
+  setLayoutSideTab('props');
 });
 $('#layoutSaveTheme').addEventListener('click', () => saveTheme(false));
 $('#layoutPreviewTheme').addEventListener('click', () => saveTheme(true));

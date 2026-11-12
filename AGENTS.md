@@ -181,9 +181,9 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
   - `font`：`null`（系统）/ `'display'` / `'body'`（跟随主题字体）/ 预设 id
   - 占位符：`{{name}}`、`{{department}}`、`{{joinDays}}`、`{{volunteerHours}}`、`{{activityCount}}`、`{{activities}}`、`{{activity1Name}}`、`{{activity1Date}}`、`{{activity1Work}}`、`{{activity2Name}}`、`{{activity2Date}}`、`{{activity2Work}}`、`{{partnerCount}}`、`{{partnerLine}}`、`{{partnerCaption}}`、`{{keyword}}`、`{{keywordReason}}`、`{{reportYear}}`、`{{message}}`
 - **image**：`{ id, type:'image', x, y, w, h, src, fit, radius, opacity, z }`，`src` 只允许 `/images/decor/<安全文件名>`
-- **extra**：`{ id, type:'extra', x, y, w, h, slot, fit, radius, opacity, z }`，`slot` 1–12，取该成员在该页附加图片的第 N 张；成员没有这张时不渲染。编辑器「补齐照片槽位」按类型补默认数量（回忆 2，放在居中工作下方；伙伴 1，放在伙伴文案下方），未引用的照片底部兜底展示
+- **extra**：`{ id, type:'extra', x, y, w, h, slot, fit, radius, opacity, z }`，`slot` 1–12，取该成员在该页附加图片的第 N 张；成员没有这张时不渲染。编辑器「补齐图片槽位」按类型补默认数量（回忆 2，放在居中工作下方；伙伴 1，放在伙伴文案下方），未引用的照片底部兜底展示
 - 校验（`lib/themes.js`）：每页 ≤40 个元素、文字 ≤2000 字，坐标/尺寸/字号/颜色/字重/层级均有范围；未知字段剔除，非法值 400。
-- 编辑：外观页「页面排版」模式，画布 390×844 等比缩放；按页面 type/config 分派默认模板（封面/数字/活动列表/回忆/伙伴/关键词/寄语）；拖动移动、右下角手柄调宽（图片/图片槽位可调高）；属性面板可直接输入 X/Y/宽/高，并改文字/单位/字体/字号/字重/颜色/对齐/透明度/层级，或图片槽位的序号/填充/高度/圆角；进入排版页时默认按现有版式生成可编辑元素，「补齐照片槽位」补默认数量，「恢复默认排版」把该页重置为默认模板。
+- 编辑：外观页「页面排版」模式，画布 390×844 等比缩放；按页面 type/config 分派默认模板（封面/数字/活动列表/回忆/伙伴/关键词/寄语）；拖动移动、右下角手柄调宽（图片/图片槽位可调高）；右侧分「元素」「属性」两个页签（选中元素自动切到属性，可返回元素列表）；属性面板可直接输入 X/Y/宽/高，并改文字/单位/字体/字号/字重/颜色/对齐/透明度/层级，或图片槽位的序号/填充/高度/圆角；进入排版页时默认按现有版式生成可编辑元素，「补齐图片槽位」补默认数量，「恢复默认排版」把该页重置为默认模板。
 - 装饰图：`POST /media/upload?kind=decor`，存 `static/images/decor/`，5MB；编辑器上传后插入元素。
 - 渲染：有 layout 的页面隐藏 `.page-inner` 默认文字、只保留结尾页按钮行，`renderLayout` 生成 `.layout-canvas` 并解析 `extra` 照片；无 layout 的页面走原版式，附加图片在底部 `.page-extra-gallery` 兜底。`playPage` 重播布局入场动画；`prefers-reduced-motion` 下关闭。
 - 约束：排版属于主题，随「应用主题」分配；修改即时生效且不可撤销；结尾页按钮固定底部；不同手机比例按设计稿等比缩放，上下/左右可能有背景留白。

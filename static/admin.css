@@ -650,7 +650,14 @@ audio { width: 100%; margin-top: 4px; }
   touch-action: none;
 }
 
-.layout-props { position: sticky; top: 12px; }
+.layout-props {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+}
+.layout-side-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.layout-side-tabs .tab { min-height: 36px; padding: 0 14px; }
 .layout-props h3 { margin: 4px 0 0; }
 .layout-props .row.is-selected {
   border-color: var(--accent);
@@ -659,5 +666,5 @@ audio { width: 100%; margin-top: 4px; }
 
 @media (max-width: 900px) {
   .layout-editor { grid-template-columns: 1fr; }
-  .layout-props { position: static; }
+  .layout-props { position: static; max-height: none; }
 }
