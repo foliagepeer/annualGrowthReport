@@ -2368,68 +2368,68 @@ function defaultLayoutTemplate(page) {
 
   if (type === 'cover') {
     return [
-      line('t-year', 200, '{{reportYear}} 年度回顾'),
-      name('t-name', 240, '{{name}}'),
-      line('t-dept', 300, '{{department}}'),
-      line('t-dedication', 350, '这一年，你的每一份付出，都值得被记录。', { size: 14, opacity: 0.6 }),
+      line('t-year', 337, '{{reportYear}} 年度回顾'),
+      name('t-name', 377, '{{name}}'),
+      line('t-dept', 437, '{{department}}'),
+      line('t-dedication', 487, '这一年，你的每一份付出，都值得被记录。', { size: 14, opacity: 0.6 }),
       line('t-hint', 600, '上滑继续', { size: 13, opacity: 0.5 }),
     ];
   }
   if (type === 'stat') {
     if (config.field === 'activityCount') {
       return [
-        line('t-line', 250, '这一年，你参与了'),
-        number('t-num', 292, '{{activityCount}}', '次'),
-        line('t-sub', 410, '活动，每一次都在场'),
+        line('t-line', 330, '这一年，你参与了'),
+        number('t-num', 372, '{{activityCount}}', '次'),
+        line('t-sub', 490, '活动，每一次都在场'),
       ];
     }
     return [
-      line('t-line', 250, '这一年，你累计贡献了'),
-      number('t-num', 292, '{{volunteerHours}}', '小时'),
-      line('t-sub', 410, '的志愿服务'),
+      line('t-line', 330, '这一年，你累计贡献了'),
+      number('t-num', 372, '{{volunteerHours}}', '小时'),
+      line('t-sub', 490, '的志愿服务'),
     ];
   }
   if (type === 'activities') {
     return [
-      line('t-title', 220, '活动足迹'),
-      line('t-line', 265, '这一年，你参与了'),
-      number('t-num', 305, '{{activityCount}}', '次活动'),
-      line('t-list', 420, '{{activities}}', { size: 13, lineHeight: 1.7 }),
-      line('t-sub', 540, '每一次都在场'),
+      line('t-title', 250, '活动足迹'),
+      line('t-line', 295, '这一年，你参与了'),
+      number('t-num', 335, '{{activityCount}}', '次活动'),
+      line('t-list', 450, '{{activities}}', { size: 13, lineHeight: 1.7 }),
+      line('t-sub', 575, '每一次都在场'),
     ];
   }
   if (type === 'memory') {
     const index = config.index === 2 ? 2 : 1;
     return [
-      line('t-title', 100, '活动回忆'),
-      name('t-name', 150, `{{activity${index}Name}}`, 28),
-      line('t-date', 215, `{{activity${index}Date}}`, { size: 13, opacity: 0.6 }),
-      line('t-work', 255, `{{activity${index}Work}}`, { size: 15, lineHeight: 1.8, opacity: 0.85 }),
-      photo('t-photo-1', 1, { x: 25, y: 380, w: 160, h: 170 }),
-      photo('t-photo-2', 2, { x: 205, y: 380, w: 160, h: 170 }),
-      line('t-sub', 650, index === 1 ? '定格一次投入' : '再看一个瞬间'),
+      line('t-title', 135, '活动回忆'),
+      name('t-name', 185, `{{activity${index}Name}}`, 28),
+      line('t-date', 250, `{{activity${index}Date}}`, { size: 13, opacity: 0.6 }),
+      line('t-work', 290, `{{activity${index}Work}}`, { size: 15, lineHeight: 1.8, opacity: 0.85 }),
+      photo('t-photo-1', 1, { x: 25, y: 415, w: 160, h: 170 }),
+      photo('t-photo-2', 2, { x: 205, y: 415, w: 160, h: 170 }),
+      line('t-sub', 685, index === 1 ? '定格一次投入' : '再看一个瞬间'),
     ];
   }
   if (type === 'partners') {
     return [
-      line('t-line', 160, '同行伙伴'),
-      number('t-num', 200, '{{partnerCount}}', '位'),
-      line('t-sub', 320, '{{partnerCaption}}'),
-      photo('t-photo-1', 1, { x: 55, y: 400, w: 280, h: 200, radius: 14 }),
+      line('t-line', 200, '同行伙伴'),
+      number('t-num', 240, '{{partnerCount}}', '位'),
+      line('t-sub', 360, '{{partnerCaption}}'),
+      photo('t-photo-1', 1, { x: 55, y: 440, w: 280, h: 200, radius: 14 }),
     ];
   }
   if (type === 'keyword') {
     return [
-      line('t-line', 240, '你的年度关键词是'),
-      name('t-keyword', 285, '{{keyword}}'),
-      line('t-reason', 360, '{{keywordReason}}', { size: 14, lineHeight: 1.8 }),
+      line('t-line', 330, '你的年度关键词是'),
+      name('t-keyword', 378, '{{keyword}}'),
+      line('t-reason', 458, '{{keywordReason}}', { size: 14, lineHeight: 1.8 }),
     ];
   }
   if (type === 'message') {
     return [
-      line('t-line', 220, '部长想对你说'),
-      line('t-message', 270, '{{message}}', { size: 17, lineHeight: 2, align: 'left', opacity: 1 }),
-      line('t-closing', 600, '感谢这一年的同行，期待下一程的你', { size: 13, opacity: 0.6 }),
+      line('t-line', 190, '部长想对你说'),
+      line('t-message', 245, '{{message}}', { size: 17, lineHeight: 2, align: 'left', opacity: 1 }),
+      line('t-closing', 640, '感谢这一年的同行，期待下一程的你', { size: 13, opacity: 0.6 }),
     ];
   }
   return [];

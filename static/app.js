@@ -419,6 +419,7 @@ function substituteLayoutText(text, data) {
 function layoutImageNode(element, src) {
   const node = document.createElement('img');
   node.className = 'layout-el layout-image';
+  node.dataset.animate = 'fadeIn';
   node.src = src;
   node.alt = '';
   node.loading = 'lazy';
@@ -460,7 +461,19 @@ function renderLayoutElement(element, theme, pageKey) {
   node.style.textAlign = element.align;
   node.style.lineHeight = String(element.lineHeight);
   node.style.fontFamily = layoutFontFamily(element.font, theme);
-  node.textContent = substituteLayoutText(element.text, reportData);
+
+  const numeric = String(element.text || '').trim()
+    .match(/^\{\{\s*(joinDays|volunteerHours|activityCount|partnerCount)\s*\}\}$/);
+  node.dataset.animate = numeric ? 'zoomIn' : 'fadeInUp';
+  if (numeric) {
+    const value = document.createElement('span');
+    value.dataset.count = numeric[1];
+    value.textContent = '0';
+    node.append(value);
+  } else {
+    node.textContent = substituteLayoutText(element.text, reportData);
+  }
+
   if (element.unit) {
     const unit = document.createElement('small');
     unit.textContent = element.unit;
@@ -504,10 +517,12 @@ function renderLayout(theme) {
     page.classList.add('layout-active');
     const canvas = document.createElement('div');
     canvas.className = 'layout-canvas';
-    for (const element of spec.elements) {
+    spec.elements.forEach((element, index) => {
       const node = renderLayoutElement(element, theme, pageKey);
-      if (node) canvas.append(node);
-    }
+      if (!node) return;
+      node.dataset.delay = `${Math.min(index * 80, 640)}ms`;
+      canvas.append(node);
+    });
     page.append(canvas);
 
     const usedSlots = new Set(spec.elements.filter(element => element.type === 'extra').map(element => element.slot));
@@ -656,13 +671,13 @@ function enterReport(data) {
   renderLayout(data.theme);
   applyLayoutScale();
 
-  // 切页光圈的元素只建一次（纯装饰，不写进 HTML）
+  // 切页光圈跟随内容中心：有排版时挂在设计画布，默认版式挂在 .page-inner
   slides.forEach((page) => {
     if (page.querySelector('.entry-ring')) return;
     const ring = document.createElement('span');
     ring.className = 'entry-ring';
     ring.setAttribute('aria-hidden', 'true');
-    page.append(ring);
+    (page.querySelector('.layout-canvas') || page.querySelector('.page-inner') || page).append(ring);
   });
 
   if (previewMode) {

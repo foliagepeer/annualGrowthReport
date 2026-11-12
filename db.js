@@ -83,5 +83,7 @@ if (studentColumns.includes('join_days')) {
 require('./lib/themes').ensureDefault(db);
 // 页面注册表与年度设置：空库或页面被全部删掉时补默认 8 页
 require('./lib/pages').seed(db);
+// 一次性把早前生成的默认排版模板垂直居中（只动与旧模板完全一致的页面）
+require('./lib/layout-migrate').migrateDefaultLayouts(db);
 
 module.exports = db;

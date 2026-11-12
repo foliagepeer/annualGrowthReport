@@ -22,7 +22,7 @@ admins(username PK, password_hash, created_at, password_changed_at, last_login_a
 ```
 
 - `students.theme` 指向 `themes.id`，NULL = 使用默认主题；`join_date` 存 `YYYY-MM-DD`（新的 8 页报告不展示加入天数，但数据保留）。
-- `db.js` 启动时自动补 `bg_dir/bg_music/join_date/theme` 与活动/关键词等列（`partner_count` 为 INTEGER）；旧 `join_days` 折算后删列；没有默认主题时 seed `default`；没有页面时 seed 默认 8 页与 `report_year`。
+- `db.js` 启动时自动补 `bg_dir/bg_music/join_date/theme` 与活动/关键词等列（`partner_count` 为 INTEGER）；旧 `join_days` 折算后删列；没有默认主题时 seed `default`；没有页面时 seed 默认 8 页与 `report_year`；另执行一次性排版居中迁移（`lib/layout-migrate.js`，仅移动与旧默认模板完全一致的页面，settings 键 `layout_center_v1`）。
 - `partner` 是旧版「年度伙伴」字段，保留在 UPSERT/撤销里，但不导入/导出/展示；新人数用 `partner_count`（留空按同部门成员数回退）。
 - `settings.login_preface` 存登录页前言（纯文本，最多 500 字，`\n` 保留换行）；未设置时用 `lib/login-copy.js` 的默认文案，存空串表示登录页不显示前言。
 - 主题配置形状：`{ base:{...}, fonts:{display,body}, motion:{notes,ambient}, pages:{[pageKey]:{...}}, layout:{[pageKey]:{elements:[...]}} }`；页面 key 不再硬编码，校验只检查形状（`/^[A-Za-z0-9_-]{1,40}$/`），由 `lib/themes.js` 负责。
