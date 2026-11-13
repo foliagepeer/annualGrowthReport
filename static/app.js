@@ -133,6 +133,7 @@ function playPage(slide) {
   if (!slide) return;
   playAnimations(slide);
   playEntryRing(slide);
+  playPhotoShowcase(slide);
   const canvas = slide.querySelector('.layout-canvas');
   if (canvas) {
     canvas.classList.remove('is-entering');
@@ -151,6 +152,133 @@ function playEntryRing(slide) {
   ring.classList.remove('is-bursting');
   void ring.offsetWidth;
   ring.classList.add('is-bursting');
+}
+
+function photoGeometry(img, slide, fraction = 0.86) {
+  const slideRect = slide.getBoundingClientRect();
+  const rect = img.getBoundingClientRect();
+  if (rect.width < 1 || rect.height < 1) return null;
+
+  // 排版画布整体有缩放，transform 的位移/比例要换算回画布内部坐标
+  const localWidth = img.offsetWidth || rect.width;
+  const parentScale = localWidth > 0 ? rect.width / localWidth : 1;
+  return {
+    dx: (slideRect.left + slideRect.width / 2 - (rect.left + rect.width / 2)) / parentScale,
+    dy: (slideRect.top + slideRect.height / 2 - (rect.top + rect.height / 2)) / parentScale,
+    scale: Math.max(1, slideRect.width * fraction / rect.width),
+  };
+}
+
+function bindPhotoZoom(img, slide) {
+  if (img.dataset.photoClickBound === '1') return;
+  img.dataset.photoClickBound = '1';
+  img.addEventListener('click', (event) => {
+    event.stopPropagation();
+    togglePhotoZoom(img, slide);
+  });
+}
+
+function closePhotoZoom(img, slide, immediate = false) {
+  if (!img) return;
+  const startTransform = img.dataset.zoomTransform || 'translate(0, 0) scale(1)';
+  if (typeof img.getAnimations === 'function') img.getAnimations().forEach(animation => animation.cancel());
+  img.classList.remove('is-photo-zoomed');
+  img.dataset.photoZoomed = '';
+  if (slide._photoZoom === img) slide._photoZoom = null;
+  const layer = img.closest('.layout-canvas, .page-extra-gallery');
+  if (layer) layer.classList.remove('is-photo-layer-active');
+
+  if (immediate) {
+    img.classList.remove('is-photo-active');
+    img.style.willChange = '';
+    return;
+  }
+  const animation = img.animate([
+    { transform: startTransform },
+    { transform: 'translate(0, 0) scale(1)' },
+  ], { duration: 420, easing: 'ease-in-out', fill: 'both' });
+  animation.onfinish = () => {
+    img.classList.remove('is-photo-active');
+    img.style.willChange = '';
+  };
+}
+
+function togglePhotoZoom(img, slide) {
+  if (img.dataset.photoReady !== '1' || typeof img.animate !== 'function') return;
+  if (slide._photoZoom === img) {
+    closePhotoZoom(img, slide);
+    return;
+  }
+  if (slide._photoZoom) closePhotoZoom(slide._photoZoom, slide, true);
+
+  if (typeof img.getAnimations === 'function') img.getAnimations().forEach(animation => animation.cancel());
+  const geometry = photoGeometry(img, slide);
+  if (!geometry) return;
+
+  img.style.willChange = 'transform';
+  img.classList.add('is-photo-active', 'is-photo-zoomed');
+  img.dataset.photoZoomed = '1';
+  img.dataset.zoomTransform = `translate(${geometry.dx}px, ${geometry.dy}px) scale(${geometry.scale})`;
+  slide._photoZoom = img;
+  const layer = img.closest('.layout-canvas, .page-extra-gallery');
+  if (layer) layer.classList.add('is-photo-layer-active');
+
+  img.animate([
+    { transform: 'translate(0, 0) scale(1)' },
+    { transform: img.dataset.zoomTransform },
+  ], { duration: 420, easing: 'ease-in-out', fill: 'both' });
+}
+
+// 页面内照片依次从画面中心放大到接近屏宽，停留后缩回原位置
+function playPhotoShowcase(slide) {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const images = [...slide.querySelectorAll('.layout-canvas .layout-image, .page-extra-gallery img')];
+  if (images.length === 0) return;
+
+  slide._photoZoom = null;
+  slide.querySelectorAll('.layout-canvas, .page-extra-gallery').forEach(node => node.classList.remove('is-photo-layer-active'));
+  const duration = 2700; // 500ms 入场 + 1500ms 停留 + 700ms 归位
+  const growEnd = 500 / duration;
+  const holdEnd = 2000 / duration;
+
+  images.forEach((img, index) => {
+    if (typeof img.animate !== 'function') return;
+    if (typeof img.getAnimations === 'function') img.getAnimations().forEach(animation => animation.cancel());
+    img.classList.remove('is-photo-active', 'is-photo-zoomed');
+    img.dataset.photoZoomed = '';
+    img.dataset.photoReady = '0';
+    bindPhotoZoom(img, slide);
+
+    const geometry = photoGeometry(img, slide);
+    if (!geometry) return;
+    const startScale = Math.min(0.22, geometry.scale * 0.18);
+    const computedOpacity = Number(window.getComputedStyle(img).opacity);
+    const finalOpacity = Number.isFinite(computedOpacity) && computedOpacity > 0 ? computedOpacity : 1;
+
+    img.classList.add('is-photo-active');
+    img.style.willChange = 'transform, opacity';
+    const animation = img.animate([
+      { opacity: 0, transform: `translate(${geometry.dx}px, ${geometry.dy}px) scale(${startScale})`, offset: 0 },
+      { opacity: finalOpacity, transform: `translate(${geometry.dx}px, ${geometry.dy}px) scale(${geometry.scale})`, offset: growEnd },
+      { opacity: finalOpacity, transform: `translate(${geometry.dx}px, ${geometry.dy}px) scale(${geometry.scale})`, offset: holdEnd },
+      { opacity: finalOpacity, transform: 'translate(0, 0) scale(1)', offset: 1 },
+    ], {
+      duration,
+      delay: Math.min(index * 1500, 4500),
+      easing: 'ease-in-out',
+      fill: 'both',
+    });
+    const cleanup = () => {
+      img.classList.remove('is-photo-active');
+      img.style.willChange = '';
+    };
+    animation.onfinish = () => {
+      cleanup();
+      img.dataset.photoReady = '1';
+    };
+    // 不要挂 oncancel：点击放大时会 cancel 该动画，异步的 oncancel 会把刚加上的
+    // is-photo-active 又删掉，导致照片退回原层级、被后面的字幕盖住
+  });
 }
 
 /* ---------- 渲染 ---------- */
@@ -409,10 +537,9 @@ function substituteLayoutText(text, data) {
 function layoutImageNode(element, src) {
   const node = document.createElement('img');
   node.className = 'layout-el layout-image';
-  node.dataset.animate = 'fadeIn';
   node.src = src;
   node.alt = '';
-  node.loading = 'lazy';
+  node.loading = 'eager';
   node.style.left = `${element.x}px`;
   node.style.top = `${element.y}px`;
   node.style.width = `${element.w}px`;
@@ -485,7 +612,7 @@ function renderExtraGallery(page, photos) {
     const img = document.createElement('img');
     img.src = photo.url;
     img.alt = '';
-    img.loading = 'lazy';
+    img.loading = 'eager';
     img.decoding = 'async';
     gallery.append(img);
   }

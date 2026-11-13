@@ -510,6 +510,23 @@ body {
 
 .layout-image { display: block; }
 
+.layout-canvas .layout-image,
+.page-extra-gallery img {
+  pointer-events: auto;
+  cursor: zoom-in;
+}
+
+.layout-canvas .layout-image.is-photo-zoomed,
+.page-extra-gallery img.is-photo-zoomed { cursor: zoom-out; }
+
+.is-photo-active { z-index: 60 !important; }
+
+/* 只提升当前图片所在的绘图层，避免另一层的图片反压当前图 */
+.layout-canvas.is-photo-layer-active,
+.page-extra-gallery.is-photo-layer-active {
+  z-index: 70;
+}
+
 .layout-canvas.is-entering {
   animation: layout-in 0.8s ease-out both;
 }

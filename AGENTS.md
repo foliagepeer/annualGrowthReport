@@ -47,6 +47,7 @@ admins(username PK, password_hash, created_at, password_changed_at, last_login_a
 
 - **动态页面**：`index.html` 只保留空的 `.swiper-wrapper`；`app.js` 的 `buildSlides(pages, data)` 按 `type/config` 生成 7 类模板（封面/数字/活动列表/活动回忆/伙伴/关键词/寄语）；进入时先销毁旧 Swiper 再建新；结尾按钮是静态节点，移到最后一个 slide；`data-bg` 使用页面 key。
 - **附加图片**：`data.extras[pageKey]` 是一组按文件名自然排序的照片；有排版的页面通过 `type:'extra'` 元素（`slot` 从 1 开始）嵌在页面内，可拖动/缩放。排版没有引用到的照片在页面底部用 `.page-extra-gallery` 兜底显示（最多 6 张），不再生成单独照片页。
+- **照片展示动画**：`playPage` 调用 `playPhotoShowcase`，页面内的 `.layout-canvas .layout-image` 与兜底画廊照片按顺序从页面中心放大到约 86% 屏宽、停留 1.5 秒后缩回原位置；动画结束后点击照片可放大到画面中央（放大图片所在绘图层整体置顶盖住文字）、再次点击缩回；整页背景图不参与；`prefers-reduced-motion` 下跳过。
 - **登录页前言**：`app.js` 启动时请求 `/api/login-copy`，把 `preface` 用 `textContent` 写入 `#loginPreface`（`white-space: pre-line`）；空串则隐藏；接口失败保留 HTML 默认文案。预览模式不请求。
 
 - **翻页**：Swiper 垂直、`speed: 800`、`mousewheel`、可点击分页；`slideChangeTransitionStart` 触发当前屏动画。
