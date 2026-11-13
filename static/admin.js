@@ -15,6 +15,8 @@ const state = {
   themeFonts: null,
   themeEditingId: '',
   themeDraft: null,
+  archives: [],
+  restore: null,
   previewStudentId: '',
   themeAssignStudentId: '',
   themeMode: 'style',
@@ -229,6 +231,7 @@ async function enterPanel() {
     state.reportYear = state.meta.reportYear || '';
     if (!state.meta.pageKeys.includes(state.layoutPageKey)) state.layoutPageKey = state.meta.pageKeys[0] || '01-cover';
     $('#reportYearInput').value = state.reportYear;
+    $('#archiveYear').value = state.reportYear || new Date().getFullYear();
     $('#loginPrefaceInput').value = (state.meta.loginCopy && state.meta.loginCopy.preface) || '';
     $('#headerHint').textContent = (state.meta.headers || []).join('、');
     $('#batchKeys').textContent = (state.meta.pageKeys || []).join('、');
@@ -300,6 +303,7 @@ function selectTab(name) {
     loadThemes().then(loadThemeFonts).catch(showError);
   }
   if (name === 'pages') renderPages();
+  if (name === 'archives') loadArchives().catch(showError);
   if (name === 'theme' && state.themeMode === 'layout') {
     requestAnimationFrame(() => {
       if (isLayoutMode()) applyEditorScale();
@@ -1526,11 +1530,47 @@ $('#batchClearPlanBtn').addEventListener('click', () => {
 
 $('#batchUploadBtn').addEventListener('click', async () => {
   const overwrite = $('#batchOverwrite').checked;
+  const purgePhotos = $('#batchPurgePhotos').checked;
+  const purgeMusic = $('#batchPurgeMusic').checked;
   const ready = batchPlan.filter(item => item.status === 'ready');
   if (ready.length === 0) return;
-  if (!await confirmDialog(`将上传 ${ready.length} 个文件${overwrite ? '（同名文件直接覆盖）' : '（遇到同名文件会跳过）'}，继续吗？`, { title: '批量上传', confirmText: '开始上传' })) return;
 
   const progress = $('#batchProgress');
+  let purgeNote = '';
+  if (purgePhotos || purgeMusic) {
+    try {
+      const preview = await request('/media/purge', {
+        method: 'POST',
+        body: { photos: purgePhotos, music: purgeMusic, dryRun: true },
+      });
+      const parts = [];
+      if (purgePhotos) {
+        parts.push(`删除成员照片 ${preview.photos.files} 个文件（${preview.photos.dirs} 个目录 + ${preview.photos.extraStudents} 名成员的附加图）`);
+      }
+      if (purgeMusic) parts.push(`删除成员音乐 ${preview.music.files} 个文件`);
+      parts.push(`随后上传 ${ready.length} 个文件${overwrite ? '（同名直接覆盖）' : ''}`);
+      const ok = await confirmDialog(
+        `将先清空：${parts.join('；')}。共享背景图、装饰图、字体不会被删除；文件删除不可撤销。继续吗？`,
+        { title: '清空并上传', confirmText: '继续', danger: true }
+      );
+      if (!ok) return;
+      progress.textContent = '正在清空成员媒体…';
+      await request('/media/purge', {
+        method: 'POST',
+        body: { photos: purgePhotos, music: purgeMusic, dryRun: false },
+      });
+      purgeNote = '；已清空旧媒体';
+      await loadMedia();
+      await loadExtras();
+    } catch (error) {
+      if (error.status === 401) return showLogin('登录已过期，请重新登录');
+      progress.textContent = '';
+      return showError(error);
+    }
+  } else if (!await confirmDialog(`将上传 ${ready.length} 个文件${overwrite ? '（同名文件直接覆盖）' : '（遇到同名文件会跳过）'}，继续吗？`, { title: '批量上传', confirmText: '开始上传' })) {
+    return;
+  }
+
   batchUploading = true;
   renderBatchPlan();
   let done = 0;
@@ -1569,7 +1609,8 @@ $('#batchUploadBtn').addEventListener('click', async () => {
   batchUploading = false;
   progress.textContent = `完成：成功 ${done} 个`
     + (skipped ? `，跳过 ${skipped} 个` : '')
-    + (failed ? `，失败 ${failed} 个` : '');
+    + (failed ? `，失败 ${failed} 个` : '')
+    + purgeNote;
   renderBatchPlan();
   await loadMedia();
   await loadExtras();
@@ -1580,6 +1621,10 @@ $('#batchUploadBtn').addEventListener('click', async () => {
 function renderPreview(data) {
   const box = $('#previewBox');
   box.textContent = '';
+  if (data.replace && data.replace.requested) {
+    box.append(el('p', 'msg error',
+      `覆盖导入：提交后将先删除现有 ${data.replace.existingTotal} 名成员，其中 ${data.replace.deleting} 人不在本次文件里；文件里还有 ${data.replace.errorRows} 行无法解析或校验失败，需先修好才能提交。`));
+  }
   const counts = data.counts;
   box.append(el('p', 'msg ok', `共 ${counts.total} 行：新增 ${counts.insert} · 更新 ${counts.update} · 无变化 ${counts.unchanged} · 错误 ${counts.error}`));
 
@@ -1608,9 +1653,10 @@ function hasChanges(data) {
 $('#previewTextBtn').addEventListener('click', async () => {
   const text = $('#importText').value;
   if (!text.trim()) return await alertDialog('请先粘贴内容');
+  const replace = $('#importReplaceRoster').checked;
   try {
-    const data = await request('/import/text/preview', { method: 'POST', body: { text } });
-    state.preview = { source: 'text', text, file: null };
+    const data = await request('/import/text/preview', { method: 'POST', body: { text, replace } });
+    state.preview = { source: 'text', text, file: null, replace, replaceInfo: data.replace };
     renderPreview(data);
     $('#commitTextBtn').disabled = !hasChanges(data);
   } catch (error) {
@@ -1624,14 +1670,22 @@ $('#commitTextBtn').addEventListener('click', async () => {
   if ($('#importText').value !== state.preview.text) {
     return await alertDialog('内容在预览后又被改过，请重新预览再导入');
   }
-  if (!await confirmDialog('确认按预览结果写入数据库吗？', { title: '确认导入', confirmText: '写入数据库' })) return;
+  const replace = $('#importReplaceRoster').checked;
+  if (replace !== state.preview.replace) {
+    return await alertDialog('覆盖选项在预览后变了，请重新预览再导入');
+  }
+  const warning = replace
+    ? `确认先清空全部现有成员（其中 ${state.preview.replaceInfo ? state.preview.replaceInfo.deleting : 0} 人不在本次文件里），再写入预览中的 ${state.preview.replaceInfo ? state.preview.replaceInfo.matched : 0} 条记录吗？`
+    : '确认按预览结果写入数据库吗？';
+  if (!await confirmDialog(warning, { title: replace ? '覆盖导入名单' : '确认导入', confirmText: replace ? '清空并写入' : '写入数据库', danger: replace })) return;
   try {
-    const result = await request('/import/text', { method: 'POST', body: { text: state.preview.text } });
+    const result = await request('/import/text', { method: 'POST', body: { text: state.preview.text, replace } });
     $('#commitTextBtn').disabled = true;
     await loadStudents();
     await loadMedia();
-    toast(`导入完成：写入 ${result.imported} 条，无变化 ${result.unchanged} 条，跳过 ${result.skipped.length} 条`
-      );
+    const summary = `导入完成：写入 ${result.imported} 条，无变化 ${result.unchanged} 条，跳过 ${result.skipped.length} 条`
+      + (result.cleared ? `；已清空旧名单 ${result.cleared} 人` : '');
+    toast(summary, result.undo ? undoToast(result.undo) : {});
   } catch (error) {
     if (error.status === 401) return showLogin('登录已过期，请重新登录');
     showError(error);
@@ -1648,14 +1702,15 @@ $('#previewExcelBtn').addEventListener('click', async () => {
   const input = $('#excelFile');
   const file = input.files && input.files[0];
   if (!file) return await alertDialog('请先选择 .xlsx 文件');
+  const replace = $('#importReplaceRoster').checked;
   try {
-    const data = await request('/import/xlsx/preview', {
+    const data = await request(`/import/xlsx/preview${replace ? '?replace=1' : ''}`, {
       method: 'POST',
       raw: true,
       headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) },
       body: await file.arrayBuffer(),
     });
-    state.preview = { source: 'xlsx', text: '', file };
+    state.preview = { source: 'xlsx', text: '', file, replace, replaceInfo: data.replace };
     renderPreview(data);
     $('#commitExcelBtn').disabled = !hasChanges(data);
   } catch (error) {
@@ -1667,9 +1722,16 @@ $('#previewExcelBtn').addEventListener('click', async () => {
 $('#commitExcelBtn').addEventListener('click', async () => {
   const file = state.preview.file;
   if (state.preview.source !== 'xlsx' || !file) return;
-  if (!await confirmDialog('确认按预览结果写入数据库吗？', { title: '确认导入', confirmText: '写入数据库' })) return;
+  const replace = $('#importReplaceRoster').checked;
+  if (replace !== state.preview.replace) {
+    return await alertDialog('覆盖选项在预览后变了，请重新预览再导入');
+  }
+  const warning = replace
+    ? `确认先清空全部现有成员（其中 ${state.preview.replaceInfo ? state.preview.replaceInfo.deleting : 0} 人不在本次文件里），再写入预览中的 ${state.preview.replaceInfo ? state.preview.replaceInfo.matched : 0} 条记录吗？`
+    : '确认按预览结果写入数据库吗？';
+  if (!await confirmDialog(warning, { title: replace ? '覆盖导入名单' : '确认导入', confirmText: replace ? '清空并写入' : '写入数据库', danger: replace })) return;
   try {
-    const result = await request('/import/xlsx', {
+    const result = await request(`/import/xlsx${replace ? '?replace=1' : ''}`, {
       method: 'POST',
       raw: true,
       headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) },
@@ -1678,13 +1740,295 @@ $('#commitExcelBtn').addEventListener('click', async () => {
     $('#commitExcelBtn').disabled = true;
     await loadStudents();
     await loadMedia();
-    toast(`导入完成：写入 ${result.imported} 条，无变化 ${result.unchanged} 条，跳过 ${result.skipped.length} 条`
-      );
+    const summary = `导入完成：写入 ${result.imported} 条，无变化 ${result.unchanged} 条，跳过 ${result.skipped.length} 条`
+      + (result.cleared ? `；已清空旧名单 ${result.cleared} 人` : '');
+    toast(summary, result.undo ? undoToast(result.undo) : {});
   } catch (error) {
     if (error.status === 401) return showLogin('登录已过期，请重新登录');
     showError(error);
   }
 });
+
+// 覆盖选项变了，旧预览不再可信，必须重新预览
+$('#importReplaceRoster').addEventListener('change', () => {
+  $('#commitTextBtn').disabled = true;
+  $('#commitExcelBtn').disabled = true;
+});
+
+/* ---------- 年度归档 ---------- */
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(1)} GB`;
+  if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MB`;
+  if (value >= 1024) return `${Math.round(value / 1024)} KB`;
+  return `${value} B`;
+}
+
+async function loadArchives() {
+  const data = await request('/archives');
+  state.archives = data.items || [];
+  renderArchives();
+  if (!$('#archiveYear').value) $('#archiveYear').value = state.reportYear || '';
+}
+
+function renderArchives() {
+  const box = $('#archiveList');
+  box.textContent = '';
+  if (state.archives.length === 0) {
+    box.append(el('p', 'muted', '还没有归档快照。先点上方「归档当前年度」生成一份。'));
+    return;
+  }
+  for (const item of state.archives) {
+    const counts = item.counts || {};
+    const row = el('div', 'row');
+    const main = el('div', 'row-main');
+    main.append(el('strong', null, `${item.year} 年`));
+    main.append(el('span', 'muted', `${counts.students || 0} 人 · 照片 ${counts.imageFiles || 0} 张 + 附加 ${counts.extraFiles || 0} 张 · 音乐 ${counts.musicFiles || 0} 首 · ${formatBytes(item.size)}`));
+    main.append(el('span', 'muted', `生成于 ${item.createdAt ? new Date(item.createdAt).toLocaleString('zh-CN') : '—'}`));
+    const actions = el('div', 'row-actions');
+    const download = el('a', 'ghost', '下载');
+    download.href = `${API}/archives/${encodeURIComponent(item.year)}/download`;
+    actions.append(download);
+    actions.append(button('恢复', 'ghost', () => openYearRestore(item.year)));
+    actions.append(button('删除', 'danger', () => removeArchive(item.year)));
+    row.append(main, actions);
+    box.append(row);
+  }
+}
+
+async function createArchive() {
+  const year = $('#archiveYear').value.trim();
+  if (!/^\d{4}$/.test(year)) return alertDialog('年份需为四位数字（2000–2100）');
+  const message = $('#archiveMessage');
+  const btn = $('#createArchiveBtn');
+  message.textContent = '正在打包名单与成员媒体，请勿关闭页面…';
+  btn.disabled = true;
+  try {
+    let result;
+    try {
+      result = await request('/archives', { method: 'POST', body: { year } });
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      const overwrite = await confirmDialog(`${year} 年的归档已存在。覆盖后旧快照会被永久删除，继续吗？`, {
+        title: '覆盖归档', confirmText: '覆盖旧快照', danger: true,
+      });
+      if (!overwrite) {
+        message.textContent = '';
+        return;
+      }
+      result = await request('/archives', { method: 'POST', body: { year, overwrite: true } });
+    }
+    message.textContent = `已生成 ${result.year} 年归档（${formatBytes(result.size)}）。`;
+    toast('归档已生成');
+    await loadArchives();
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    message.textContent = '';
+    showError(error);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function removeArchive(year) {
+  const ok = await confirmDialog(`删除 ${year} 年的归档包？快照文件会被永久删除，无法撤销。`, {
+    title: '删除归档', confirmText: '删除', danger: true,
+  });
+  if (!ok) return;
+  try {
+    await request(`/archives/${encodeURIComponent(year)}`, { method: 'DELETE' });
+    toast(`已删除 ${year} 年归档`);
+    await loadArchives();
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+}
+
+function uploadArchiveFile(file) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API}/archives/upload?filename=${encodeURIComponent(file.name)}`);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('Content-Type', 'application/zip');
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+      $('#archiveUploadProgress').textContent = `上传中 ${Math.round(event.loaded / event.total * 100)}%（${formatBytes(event.loaded)} / ${formatBytes(event.total)}）`;
+    };
+    xhr.onload = () => {
+      let data = null;
+      try { data = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(data);
+      const error = new Error((data && data.error) || `上传失败（${xhr.status}）`);
+      error.status = xhr.status;
+      reject(error);
+    };
+    xhr.onerror = () => reject(new Error('上传中断，请检查网络后重试'));
+    xhr.send(file);
+  });
+}
+
+async function openYearRestore(year) {
+  try {
+    const preview = await request(`/archives/${encodeURIComponent(year)}/preview`);
+    state.restore = { type: 'year', year, preview };
+    renderRestoreBox();
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    showError(error);
+  }
+}
+
+function renderRestoreBox() {
+  const restore = state.restore;
+  if (!restore) {
+    $('#restoreCard').hidden = true;
+    return;
+  }
+  const preview = restore.preview || {};
+  const incoming = preview.incoming || {};
+  const current = preview.current || {};
+  const photos = current.photos || {};
+  const music = current.music || {};
+  $('#restoreCard').hidden = false;
+  $('#restoreSummary').textContent = `归档 ${preview.source ? preview.source.year : ''} 年：${incoming.students || 0} 人 · 照片 ${(incoming.imageFiles || 0) + (incoming.extraFiles || 0)} 个 · 音乐 ${incoming.musicFiles || 0} 个；当前 ${current.students || 0} 人 · 照片 ${photos.files || 0} 个 · 音乐 ${music.files || 0} 个。`;
+  const warnings = preview.warnings || [];
+  $('#restoreWarnings').textContent = warnings.join('；');
+  $('#restoreWarnings').hidden = warnings.length === 0;
+  $('#restoreKeepLabel').hidden = restore.type !== 'upload';
+  $('#restoreKeep').checked = restore.type === 'upload';
+  $('#restoreRoster').checked = true;
+  $('#restorePhotos').checked = true;
+  $('#restoreMusic').checked = true;
+  $('#restoreSetYear').checked = true;
+  $('#restoreMessage').hidden = true;
+  $('#restoreConfirmBtn').disabled = false;
+  $('#restoreCard').scrollIntoView({ block: 'nearest' });
+}
+
+async function cancelRestore() {
+  const restore = state.restore;
+  state.restore = null;
+  $('#restoreCard').hidden = true;
+  $('#archiveUploadProgress').textContent = '';
+  if (restore && restore.type === 'upload') {
+    try { await request(`/archives/upload/${encodeURIComponent(restore.token)}`, { method: 'DELETE' }); } catch {}
+  }
+}
+
+async function confirmRestore() {
+  const restore = state.restore;
+  if (!restore) return;
+  const categories = {
+    roster: $('#restoreRoster').checked,
+    photos: $('#restorePhotos').checked,
+    music: $('#restoreMusic').checked,
+  };
+  if (!categories.roster && !categories.photos && !categories.music) return alertDialog('至少选择名单、照片、音乐中的一类');
+  const setReportYear = $('#restoreSetYear').checked;
+  const keep = restore.type === 'upload' && $('#restoreKeep').checked;
+  const preview = restore.preview || {};
+  const incoming = preview.incoming || {};
+  const current = preview.current || {};
+  const parts = [];
+  if (categories.roster) parts.push(`清空现有 ${current.students || 0} 名成员并写入 ${incoming.students || 0} 人（所有成员会被注销登录）`);
+  if (categories.photos) {
+    parts.push(`清空当前 ${((current.photos || {}).files) || 0} 个成员照片文件并写入 ${(incoming.imageFiles || 0) + (incoming.extraFiles || 0)} 个`);
+  }
+  if (categories.music) parts.push(`清空当前 ${((current.music || {}).files) || 0} 首成员音乐并写入 ${incoming.musicFiles || 0} 首`);
+  if (setReportYear) parts.push(`把年度改为 ${preview.source ? preview.source.year : ''}`);
+
+  const ok = await confirmDialog(`将执行：${parts.join('；')}。文件操作不可撤销，继续吗？`, {
+    title: '恢复归档', confirmText: '开始恢复', danger: true,
+  });
+  if (!ok) return;
+
+  $('#restoreConfirmBtn').disabled = true;
+  $('#restoreMessage').hidden = true;
+  try {
+    const body = {
+      ...categories,
+      setReportYear,
+      keep,
+      overwrite: false,
+    };
+    if (restore.type === 'upload') body.token = restore.token;
+    else body.year = restore.year;
+
+    let result;
+    try {
+      result = await request('/archives/restore', { method: 'POST', body });
+    } catch (error) {
+      if (error.status !== 409 || !keep) throw error;
+      const overwrite = await confirmDialog('该年份的归档已存在，覆盖旧快照后继续？', {
+        title: '覆盖归档', confirmText: '覆盖并恢复', danger: true,
+      });
+      if (!overwrite) throw error;
+      result = await request('/archives/restore', { method: 'POST', body: { ...body, overwrite: true } });
+    }
+
+    state.restore = null;
+    $('#restoreCard').hidden = true;
+    $('#archiveUploadProgress').textContent = '';
+    const roster = result.categories.roster || {};
+    const photos = result.categories.photos || {};
+    const music = result.categories.music || {};
+    const summary = [
+      categories.roster ? `名单 ${roster.inserted || 0} 人` : '',
+      categories.photos ? `照片 ${photos.files || 0} 个` : '',
+      categories.music ? `音乐 ${music.files || 0} 首` : '',
+    ].filter(Boolean).join(' · ');
+    toast(`恢复完成：${summary}${roster.sessionsRemoved ? `；${roster.sessionsRemoved} 个成员会话已注销` : ''}`);
+    await loadStudents();
+    await loadMedia();
+    await loadExtras();
+    await loadArchives();
+    if (result.setReportYear) {
+      state.meta = await request('/meta');
+      state.reportYear = state.meta.reportYear || '';
+      $('#reportYearInput').value = state.reportYear;
+      $('#archiveYear').value = state.reportYear;
+    }
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    if (error.status === 410) {
+      state.restore = null;
+      $('#restoreCard').hidden = true;
+    }
+    $('#restoreMessage').textContent = error.message;
+    $('#restoreMessage').hidden = false;
+  } finally {
+    $('#restoreConfirmBtn').disabled = false;
+  }
+}
+
+$('#createArchiveBtn').addEventListener('click', createArchive);
+$('#refreshArchivesBtn').addEventListener('click', () => loadArchives().catch(showError));
+$('#uploadArchiveBtn').addEventListener('click', async () => {
+  const input = $('#archiveUploadInput');
+  const file = input.files && input.files[0];
+  if (!file) return alertDialog('请先选择归档 zip');
+  const btn = $('#uploadArchiveBtn');
+  btn.disabled = true;
+  $('#archiveUploadName').textContent = file.name;
+  $('#archiveUploadProgress').textContent = '正在上传…';
+  try {
+    const data = await uploadArchiveFile(file);
+    state.restore = { type: 'upload', token: data.token, preview: data.preview };
+    renderRestoreBox();
+    $('#archiveUploadProgress').textContent = '上传完成，请确认恢复选项。';
+  } catch (error) {
+    if (error.status === 401) return showLogin('登录已过期，请重新登录');
+    $('#archiveUploadProgress').textContent = '';
+    showError(error);
+  } finally {
+    btn.disabled = false;
+    input.value = '';
+  }
+});
+$('#restoreConfirmBtn').addEventListener('click', confirmRestore);
+$('#restoreCancelBtn').addEventListener('click', cancelRestore);
 
 /* ---------- 外观 / 主题 ---------- */
 

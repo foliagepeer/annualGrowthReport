@@ -33,6 +33,7 @@
     <button class="tab is-active" data-tab="students" type="button">成员</button>
     <button class="tab" data-tab="media" type="button">媒体资源</button>
     <button class="tab" data-tab="io" type="button">导入导出</button>
+    <button class="tab" data-tab="archives" type="button">归档</button>
     <button class="tab" data-tab="theme" type="button">外观</button>
     <button class="tab" data-tab="pages" type="button">页面</button>
   </nav>
@@ -123,7 +124,10 @@
           <input id="batchDir" type="file" webkitdirectory directory multiple hidden>
         </label>
         <label class="check-all"><input id="batchOverwrite" type="checkbox"> 同名文件直接覆盖</label>
+        <label class="check-all check-danger"><input id="batchPurgePhotos" type="checkbox"> 上传前清空成员照片</label>
+        <label class="check-all check-danger"><input id="batchPurgeMusic" type="checkbox"> 上传前清空成员音乐</label>
       </div>
+      <p class="muted">清空只影响成员数据：<code>images/&lt;学号或自定义目录&gt;/</code>、<code>images/extras/</code> 与 <code>music/</code>；共享背景图（images 根目录）、装饰图、字体不会被删除，文件删除不可撤销。</p>
       <div class="toolbar">
         <button id="batchUploadBtn" class="primary" type="button" disabled>开始上传</button>
         <button id="batchClearPlanBtn" class="ghost" type="button" disabled>清空清单</button>
@@ -135,6 +139,10 @@
     <!-- 导入导出 -->
     <section id="tab-io" class="tab-panel" hidden>
       <p class="muted">「活动记录」留空时，会自动用同一行的两条活动回忆名称生成。</p>
+      <label class="check-all check-danger">
+        <input id="importReplaceRoster" type="checkbox"> 导入前清空现有名单（危险）
+      </label>
+      <p class="muted">勾选后会先删除全部成员再写入本次文件（只清名单，不删除照片与音乐）。改动勾选后需要重新预览；名单清空后旧成员需要重新登录。</p>
       <h2>批量添加 / 更新（粘贴文本）</h2>
       <p class="muted">每行一名成员，字段顺序：<code id="headerHint"></code>。逗号或 Tab 分隔，字段内含逗号请用双引号包起来；空行与 <code>#</code> 开头的行会忽略。一行就是单条，多行就是多条。</p>
       <textarea id="importText" class="field" rows="6" placeholder="2021004,王五,外联部,2024-09-01,60,8,迎新晚会、支教,迎新晚会,2026-09-10,现场统筹,支教,2026-07-15,课程设计,12,现场定心丸,总能稳住场面,继续加油,,"></textarea>
@@ -160,6 +168,55 @@
 
       <h2>预览结果</h2>
       <div id="previewBox" class="list"></div>
+    </section>
+
+    <!-- 年度归档 -->
+    <section id="tab-archives" class="tab-panel" hidden>
+      <div class="card editor">
+        <h2>归档当前年度</h2>
+        <p class="muted">把当前<strong>名单、成员照片（含附加图片）、成员音乐</strong>打包成 zip。共享背景图、装饰图、字体、主题与页面配置不会进入归档。</p>
+        <div class="toolbar">
+          <label class="field-label" for="archiveYear">年份</label>
+          <input id="archiveYear" class="field select-narrow" type="number" min="2000" max="2100" step="1">
+          <button id="createArchiveBtn" class="primary" type="button">归档当前年度</button>
+          <button id="refreshArchivesBtn" class="ghost" type="button">刷新</button>
+        </div>
+        <p id="archiveMessage" class="muted"></p>
+      </div>
+
+      <h2>已有快照</h2>
+      <div id="archiveList" class="list"></div>
+
+      <div class="card editor">
+        <h2>上传归档包</h2>
+        <p class="muted">只接受本系统导出的 zip。上传后先预览包内数量，再选择要覆盖的类别；文件操作不可撤销。</p>
+        <div class="toolbar">
+          <label class="ghost file-picker">选择归档包
+            <input id="archiveUploadInput" type="file" accept=".zip,application/zip" hidden>
+          </label>
+          <button id="uploadArchiveBtn" class="primary" type="button">上传并预览</button>
+          <span id="archiveUploadName" class="muted"></span>
+        </div>
+        <p id="archiveUploadProgress" class="muted"></p>
+      </div>
+
+      <div id="restoreCard" class="card editor" hidden>
+        <h2>恢复 / 覆盖</h2>
+        <p id="restoreSummary" class="muted"></p>
+        <p id="restoreWarnings" class="msg warn" hidden></p>
+        <div class="grid">
+          <label class="check-all"><input id="restoreRoster" type="checkbox" checked> 名单（清空现有名单后写入）</label>
+          <label class="check-all"><input id="restorePhotos" type="checkbox" checked> 照片（清空成员照片后写入）</label>
+          <label class="check-all"><input id="restoreMusic" type="checkbox" checked> 音乐（清空成员音乐后写入）</label>
+          <label class="check-all"><input id="restoreSetYear" type="checkbox" checked> 同时把年度设为归档年份</label>
+          <label class="check-all" id="restoreKeepLabel"><input id="restoreKeep" type="checkbox" checked> 同时保存为正式快照</label>
+        </div>
+        <div class="toolbar">
+          <button id="restoreConfirmBtn" class="danger" type="button">开始恢复</button>
+          <button id="restoreCancelBtn" class="ghost" type="button">取消</button>
+        </div>
+        <p id="restoreMessage" class="msg error" hidden></p>
+      </div>
     </section>
 
     <!-- 外观 / 主题 -->

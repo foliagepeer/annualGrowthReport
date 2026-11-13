@@ -230,8 +230,15 @@ main { padding: 12px 16px 60px; }
 .row-head input[type="checkbox"] { margin-top: 4px; }
 .row-main { display: grid; gap: 2px; min-width: 0; }
 .row-main strong { word-break: break-word; }
-.row-actions { display: flex; flex-wrap: wrap; gap: var(--gap); }
+.row-actions { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
 .row-actions button, .row-actions a { min-height: 38px; padding: 0 14px; font-size: 13px; }
+
+/* 危险勾选（清空名单 / 清空成员媒体） */
+.check-all.check-danger { color: #ffb4b4; }
+.check-all.check-danger input { accent-color: #e5484d; }
+
+#restoreCard { border-color: rgba(229, 72, 77, 0.45); }
+#archiveList .row-main .muted { font-size: 12px; }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .tag {
   padding: 1px 9px;

@@ -11,10 +11,13 @@ services:
       NODE_ENV: production
       PORT: 3000
       DB_PATH: /app/data/report.db
+      ARCHIVE_DIR: /app/archives
       SESSION_SECRET: ${SESSION_SECRET:?请在 .env 中设置 SESSION_SECRET}
     volumes:
       - sqlite_data:/app/data
       - ./import:/app/import
+      # 年度归档包：放宿主机目录，独立于数据库卷，便于单独备份/轮转或换盘
+      - ${ARCHIVE_HOST_DIR:-./archives}:/app/archives
       # 静态资源目录：可写，因为管理面板要能上传图片与音乐；nginx 侧仍以只读挂载
       - ./static:/app/static
     networks:

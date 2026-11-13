@@ -4,7 +4,7 @@
 
 手机端「个人年度成长报告」：姓名 + 学号登录，查看本人年度回顾（默认 8 页：封面 → 志愿时长 → 活动足迹 → 活动回忆① → 活动回忆② → 同行伙伴 → 年度关键词 → 部长寄语），整屏上下翻页；页面数量/顺序/启用由「页面注册表」配置；支持每位成员独立背景图/音乐、全站主题（配色/字体/光效）与页面排版。使用说明见 `docs/使用说明.md`。
 
-技术栈：Node 24.22.1-alpine + Express 5 + better-sqlite3 13 + express-session（自写 SQLite Store）+ bcryptjs（仅管理员密码）；前端原生 JS + Swiper 11.2.10 + Animate.css 4.1.1（本地化，不走 CDN）；SheetJS 0.20.3 仅用于导入；Docker Compose 部署，nginx 负责静态托管与 `/api` 反代。
+技术栈：Node 24.22.1-alpine + Express 5 + better-sqlite3 13 + express-session（自写 SQLite Store）+ bcryptjs（仅管理员密码）；前端原生 JS + Swiper 11.2.10 + Animate.css 4.1.1（本地化，不走 CDN）；SheetJS 0.20.3 仅用于导入，yazl/yauzl 仅用于年度归档 zip；Docker Compose 部署，nginx 负责静态托管与 `/api` 反代。
 
 ## 2. 数据模型与迁移
 
@@ -109,6 +109,12 @@ docker compose exec -T app node scripts/set-admin.js admin --delete
 | `POST /import/text/preview`、`/import/text`、`/import/xlsx/preview`、`/import/xlsx` | 文本 / Excel 预览与执行（Excel 用原始字节 + `X-File-Name`，不用 multipart） |
 | `GET /export/xlsx`、`GET /export/template.xlsx`、`POST /export/xlsx` | 导出全部 / 模板 / 导出勾选（`{studentIds}`） |
 | `GET /media`、`POST /media/upload`、`DELETE /media` | 媒体全景、上传（`kind=image|music|font|decor`）、删除；音乐上限 10MB，字体仅两槽位且校验 woff magic、8MB；装饰图存 `static/images/decor/` |
+| `POST /media/purge` | `{photos,music,dryRun}`：统计或清空成员照片（成员图目录 + extras）与成员音乐；共享图、decor、字体不动 |
+| `GET /archives`、`POST /archives`、`DELETE /archives/:year` | 年度快照列表 / 生成 / 删除（zip + sidecar） |
+| `POST /archives/upload`、`DELETE /archives/upload/:token` | 流式上传归档包 → `{token, preview}`；丢弃临时包 |
+| `POST /archives/restore`、`GET /archives/:year/preview`、`GET /archives/:year/download` | 按名单/照片/音乐分别覆盖恢复、恢复前计数、下载 zip |
+
+**年度归档（快照）**：`lib/archives.js`；包存宿主机 `./archives`（容器 `/app/archives`，`ARCHIVE_DIR`），zip 内为 `manifest.json`、`roster/students.json`（全表原始行）、`roster/students.xlsx`、`media/images/...`、`media/images/extras/...`、`media/music/...`。只收成员数据，不含共享图/decor/字体/主题/页面。恢复先解压到 `static/.restore-*`、旧文件移到 `static/.trash-*`，名单在单事务内清空重写并注销成员会话；失败从 trash 回滚。上传 ≤2GB、解压总量 ≤6GB、单文件 ≤100MB、条目 ≤5 万；路径/符号链接/zip bomb 校验；create/restore/purge 互斥。nginx 对 `/api/admin/archives/` 放宽到 2g 并关闭请求缓冲；点路径（`.restore-*`/`.trash-*`）一律 404。
 
 **交互约定**：成功/信息用右下角轻提示（默认 4.5 秒、带撤销 10 秒，提示本身不可点关闭，只能点小叉）；错误/校验用页面内对话框；危险操作红色确认按钮。不用原生 `confirm/alert/prompt`。
 
@@ -125,12 +131,13 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 
 - **主题不受导入影响**：主题不进 Excel/文本字段顺序（防破坏按列粘贴），未提供时继承库里的值；「导出 → 再导入」不会清空主题。
 - **缺列继承**：旧 11 列模板/文本缺少的活动/关键词等新列会沿用库里的原值；新版 19 列留空才会清空。文本导入 11 列按旧表头映射，19 列按新表头映射；含密码列的旧 20 列文本需删除密码列。
+- **覆盖式导入**：文本预览/提交带 `replace`，Excel 用 `?replace=1`；先删全表再写入，文件里任何解析/校验错误都会拒绝提交；会注销成员会话，名单部分可 10 秒撤销（`UndoBuffer` 的 `removeIds` 会先删本次新增行）。
 - 背景图/音乐留空即回到默认规则（学号目录 / 同学号音频）；文件放好即生效，无需重启。
 - 库内测试账号：2021001 张三、2021002 李四、2021003 王五（用姓名 + 学号登录）；投放前删除。
 
 ## 7. 部署与运维
 
-**Compose**：`report-app`（容器内 3000，不映射端口）+ `report-nginx`（`${HTTP_PORT}:80`，当前 80）。`app` 挂载数据卷 `sqlite_data:/app/data`、`./import`、`./static`（**读写**）；`nginx` 挂载 `./nginx`（目录）与 `./static`（只读）。上传文件属主是 root，宿主机原地覆盖会 EACCES，先删/`mv` 或 `sudo chown`。`app.build.network: host`（容器 bridge 无 IPv6 路由，构建期借用宿主机网络）。
+**Compose**：`report-app`（容器内 3000，不映射端口）+ `report-nginx`（`${HTTP_PORT}:80`，当前 80）。`app` 挂载数据卷 `sqlite_data:/app/data`、`./import`、`./static`（**读写**）、`${ARCHIVE_HOST_DIR:-./archives}:/app/archives`（归档包，独立于数据库卷）；`nginx` 挂载 `./nginx`（目录）与 `./static`（只读）。上传文件属主是 root，宿主机原地覆盖会 EACCES，先删/`mv` 或 `sudo chown`。`app.build.network: host`（容器 bridge 无 IPv6 路由，构建期借用宿主机网络）。
 
 **镜像**：`node:24.22.1-alpine` 多阶段构建，`npm ci --omit=dev --ignore-scripts`，运行阶段只拷贝依赖与代码。Docker Hub 直连不可达，用 `docker.m.daocloud.io` 拉取后 retag；npm 走 `registry.npmmirror.com`；better-sqlite3 自带 musl 预编译，无需编译工具链；SheetJS 用 `vendor/xlsx-0.20.3.tgz` 的 `file:` 依赖。
 
@@ -142,7 +149,7 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 - 安全头：nosniff、X-Frame-Options、Referrer-Policy、CSP（`default-src 'self'`，`script-src 'self'`，样式允许内联）。
 - `keepalive_timeout 300s`；`client_max_body_size 12m` + JSON 413（音乐 10MB 需留余量）；gzip 仅文本类，`/api` 与图片显式关闭；HSTS 等 HTTPS 落地再加。
 
-**常用命令**：部署/重建 `docker compose up -d --build`；看日志 `docker compose logs -f app`；改 nginx 后 `docker compose exec nginx nginx -s reload`；改前端静态文件直接刷新，无需重启；停止 `docker compose down`；备份数据库 `docker run --rm -v sqlite_data:/data -v $(pwd):/backup alpine tar cvf /backup/backup.tar /data`。
+**常用命令**：部署/重建 `docker compose up -d --build`；看日志 `docker compose logs -f app`；改 nginx 后 `docker compose exec nginx nginx -s reload`；改前端静态文件直接刷新，无需重启；停止 `docker compose down`；备份数据库 `docker run --rm -v sqlite_data:/data -v $(pwd):/backup alpine tar cvf /backup/backup.tar /data`。归档包不在数据库卷内，需单独备份/轮转 `./archives`（或把 `ARCHIVE_HOST_DIR` 指到另一块盘）。
 
 **目录**：`server.js`（入口）/ `db.js`（建库迁移）/ `session-store.js` / `rate-limit.js` / `lib/student-records.js`（成员规则）/ `lib/media.js`（资源解析与写入）/ `lib/themes.js`（主题）/ `lib/undo-buffer.js` / `routes/admin.js` / `scripts/*`；`static/` 含页面、`vendor/`、`images/`（不入库）、`music/`（不入库）、`fonts/presets/`（入库）与 `fonts/custom/`（不入库）。
 
@@ -173,6 +180,8 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 - 成员端：姓名+学号登录/退出；8 页动态渲染/翻页/动画/数字滚动；照片背景与暗层；音乐开关；页面注册表顺序/启停；附加图片按页插入且顺序正确；最后一个 slide 的按钮；主题颜色/字体/排版；`prefers-reduced-motion` 降级；预览模式无退出。
 - 页面排版：8 类默认模板、拖动/缩放/属性/加文字/加图片/恢复默认/保存；新占位符；结尾按钮保留。
 - 管理端：页面注册表、批量操作与撤销、批量媒体、按文件名归属、外观编辑与真实预览、提示/对话框样式。
+- 归档：生成 → 下载 → 上传预览 → 三类全选/单选恢复（名单/照片/音乐互不影响）→ 报告正常；损坏包/路径穿越/符号链接/超限被拒；同年覆盖确认；删除快照；`./archives` 落盘且不进数据库卷。
+- 覆盖入口：Excel/文本 `replace` 预览删除数、错误行拒绝、撤销还原；批量上传前清空成员照片/音乐，共享图与 decor 保留；并发第二次归档/恢复 409。
 - 移动端手测：iPhone/Android 字体加载无跳动、自动播放被拦、动画帧率正常。
 
 ## 10. 页面排版

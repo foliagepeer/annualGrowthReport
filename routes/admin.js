@@ -2,12 +2,14 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
+const { randomUUID } = require('crypto');
 const records = require('../lib/student-records');
 const media = require('../lib/media');
 const themes = require('../lib/themes');
 const pages = require('../lib/pages');
 const loginCopy = require('../lib/login-copy');
 const report = require('../lib/report');
+const archives = require('../lib/archives');
 const { AttemptLimiter } = require('../rate-limit');
 const { UndoBuffer } = require('../lib/undo-buffer');
 
@@ -81,6 +83,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
   const markAdminLogin = db.prepare("UPDATE admins SET last_login_at = datetime('now') WHERE username = ?");
 
   const findStudent = db.prepare('SELECT * FROM students WHERE student_id = ?');
+  const listAllStudents = db.prepare('SELECT * FROM students');
   const listStudents = db.prepare('SELECT * FROM students ORDER BY student_id LIMIT ? OFFSET ?');
   const countStudents = db.prepare('SELECT count(*) AS total FROM students');
   const searchStudents = db.prepare('SELECT * FROM students WHERE instr(student_id, ?) > 0 OR instr(name, ?) > 0 ORDER BY student_id LIMIT ? OFFSET ?');
@@ -197,7 +200,12 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
       limits: { image: KIND_LIMITS.image, music: KIND_LIMITS.music, font: KIND_LIMITS.font, rows: records.MAX_ROWS },
       extensions: { image: media.IMAGE_EXTENSIONS, music: media.AUDIO_EXTENSIONS, font: media.FONT_EXTENSIONS },
       fontPresets: media.listFontPresets(),
-      features: { theme: true },
+      features: { theme: true, archive: true },
+      archive: {
+        maxBytes: archives.MAX_UPLOAD_BYTES,
+        maxEntries: archives.MAX_ENTRIES,
+        dir: archives.ARCHIVE_DIR,
+      },
       media: {
         imageRoot,
         musicRoot,
@@ -438,6 +446,7 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     if (!entry) return res.status(404).json({ error: '撤销已过期或已使用过' });
 
     const run = db.transaction(() => {
+      for (const id of entry.removeIds || []) deleteStudent.run(id);
       for (const row of entry.rows) restoreStudent.run(row);
     });
     run();
@@ -639,6 +648,44 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     };
   }
 
+  // 覆盖式导入：告诉前端会删掉多少现有成员（现有总数 - 本次文件里命中的现有学号）
+  function replaceSummary(plan, requested, parseErrors = []) {
+    if (!requested) return null;
+    const total = countStudents.get().total;
+    const matched = new Set(
+      plan.items
+        .filter(item => item.studentId && (item.action === 'update' || item.action === 'unchanged'))
+        .map(item => item.studentId)
+    ).size;
+    return {
+      requested: true,
+      existingTotal: total,
+      matched,
+      deleting: Math.max(0, total - matched),
+      errorRows: plan.counts.error + parseErrors.length,
+    };
+  }
+
+  function applyReplaceImport(plan, errors, replace) {
+    if (!replace) {
+      return { result: records.applyRecords(db, plan.items), cleared: 0, sessionsRemoved: 0, undo: null };
+    }
+    if (errors.length > 0 || plan.counts.error > 0) {
+      throw Object.assign(new Error('文件里存在无法解析或校验失败的行，覆盖导入已取消'), { status: 400 });
+    }
+    const before = listAllStudents.all();
+    const insertedIds = plan.items.filter(item => item.record).map(item => item.record.student_id);
+    const outcome = db.transaction(() => {
+      const result = records.applyRecords(db, plan.items, { replace: true });
+      const sessionsRemoved = db.prepare("DELETE FROM sessions WHERE json_extract(sess, '$.studentId') IS NOT NULL").run().changes;
+      return { result, sessionsRemoved };
+    })();
+    const undo = before.length <= 5000
+      ? undos.remember('覆盖导入名单', before, { removeIds: insertedIds })
+      : null;
+    return { ...outcome, cleared: before.length, undo };
+  }
+
   function missingText(req, res) {
     if (!req.body || typeof req.body.text !== 'string' || !req.body.text.trim()) {
       res.status(400).json({ error: '没有可导入的内容' });
@@ -649,21 +696,34 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
 
   router.post('/import/text/preview', requireAdmin, jsonBody, (req, res) => {
     if (missingText(req, res)) return;
+    const replace = Boolean(req.body.replace);
     const { rows, errors } = records.parseText(req.body.text);
     if (rows.length === 0) return res.status(400).json({ error: errors.length ? '解析失败' : '没有可导入的内容', parseErrors: errors });
-    res.json(buildPreview(records.planRecords(db, rows), { parseErrors: errors }));
+    const plan = records.planRecords(db, rows);
+    res.json(buildPreview(plan, { parseErrors: errors, replace: replaceSummary(plan, replace, errors) }));
   });
 
   router.post('/import/text', requireAdmin, jsonBody, (req, res, next) => {
     try {
       if (missingText(req, res)) return;
+      const replace = Boolean(req.body.replace);
       const { rows, errors } = records.parseText(req.body.text);
       if (rows.length === 0) return res.status(400).json({ error: '没有可导入的内容', parseErrors: errors });
 
       const plan = records.planRecords(db, rows);
-      const result = records.applyRecords(db, plan.items);
-      res.json({ success: true, imported: result.imported, unchanged: result.unchanged, skipped: result.skipped, parseErrors: errors });
+      const applied = applyReplaceImport(plan, errors, replace);
+      res.json({
+        success: true,
+        imported: applied.result.imported,
+        unchanged: applied.result.unchanged,
+        skipped: applied.result.skipped,
+        cleared: applied.cleared,
+        sessionsRemoved: applied.sessionsRemoved,
+        undo: applied.undo,
+        parseErrors: errors,
+      });
     } catch (err) {
+      if (err.status === 400) return res.status(400).json({ error: err.message });
       next(err);
     }
   });
@@ -694,17 +754,30 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
   router.post('/import/xlsx/preview', requireAdmin, rawBody, (req, res) => {
     const parsed = readExcel(req, res);
     if (!parsed) return;
-    res.json(buildPreview(records.planRecords(db, parsed.rows), { sheetName: parsed.sheetName }));
+    const replace = String(req.query.replace || '') === '1';
+    const plan = records.planRecords(db, parsed.rows);
+    res.json(buildPreview(plan, { sheetName: parsed.sheetName, replace: replaceSummary(plan, replace, []) }));
   });
 
   router.post('/import/xlsx', requireAdmin, rawBody, (req, res, next) => {
     try {
       const parsed = readExcel(req, res);
       if (!parsed) return;
+      const replace = String(req.query.replace || '') === '1';
       const plan = records.planRecords(db, parsed.rows);
-      const result = records.applyRecords(db, plan.items);
-      res.json({ success: true, imported: result.imported, unchanged: result.unchanged, skipped: result.skipped, sheetName: parsed.sheetName });
+      const applied = applyReplaceImport(plan, [], replace);
+      res.json({
+        success: true,
+        imported: applied.result.imported,
+        unchanged: applied.result.unchanged,
+        skipped: applied.result.skipped,
+        cleared: applied.cleared,
+        sessionsRemoved: applied.sessionsRemoved,
+        undo: applied.undo,
+        sheetName: parsed.sheetName,
+      });
     } catch (err) {
+      if (err.status === 400) return res.status(400).json({ error: err.message });
       next(err);
     }
   });
@@ -855,6 +928,22 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     }
   });
 
+  router.post('/media/purge', requireAdmin, jsonBody, async (req, res, next) => {
+    try {
+      const photos = Boolean(req.body && req.body.photos);
+      const music = Boolean(req.body && req.body.music);
+      const dryRun = Boolean(req.body && req.body.dryRun);
+      if (!photos && !music) return res.status(400).json({ error: '请选择要清空的类别' });
+      const result = dryRun
+        ? archives.purgeMemberMedia({ photos, music, dryRun: true })
+        : await archives.withLock('清空媒体', async () => archives.purgeMemberMedia({ photos, music, dryRun: false }));
+      res.json(result);
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  });
+
   router.delete('/media', requireAdmin, (req, res) => {
     const kind = String(req.query.kind || '');
     if (!['image', 'music', 'font', 'decor'].includes(kind)) return res.status(400).json({ error: '资源类型只能是 image、music、font 或 decor' });
@@ -880,6 +969,214 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     fs.unlinkSync(target);
     if (dir) media.removeDirIfEmpty(path.dirname(target));
     res.json({ success: true });
+  });
+
+  /* ---------- 年度归档 ---------- */
+
+  // 预览里带有 roster 原始行，不能直接回给前端
+  function publicPreview(preview) {
+    if (!preview) return null;
+    const { scanned, rosterIds, ...rest } = preview;
+    return rest;
+  }
+
+  router.get('/archives', requireAdmin, (req, res) => {
+    res.json({
+      items: archives.listArchives(),
+      limits: { maxBytes: archives.MAX_UPLOAD_BYTES, maxEntries: archives.MAX_ENTRIES },
+      busy: archives.currentBusy(),
+      dir: archives.ARCHIVE_DIR,
+    });
+  });
+
+  router.post('/archives', requireAdmin, jsonBody, async (req, res, next) => {
+    try {
+      const year = String((req.body && req.body.year) || '').trim();
+      const overwrite = Boolean(req.body && req.body.overwrite);
+      const result = await archives.withLock('归档', async () => archives.createArchive(db, { year, overwrite }));
+      res.status(201).json({ success: true, ...result });
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  });
+
+  // 流式接收归档包：不能挂 express.raw，否则 GB 级内容会整包进内存
+  router.post('/archives/upload', requireAdmin, (req, res) => {
+    archives.ensureDirs();
+    const token = randomUUID();
+    const partPath = path.join(archives.TMP_DIR, `${token}.part`);
+    const zipPath = path.join(archives.TMP_DIR, `${token}.zip`);
+    const output = fs.createWriteStream(partPath);
+    let received = 0;
+    let tooLarge = false;
+    let finished = false;
+
+    const cleanup = () => {
+      for (const target of [partPath, zipPath]) {
+        try { fs.rmSync(target, { force: true }); } catch {}
+      }
+    };
+    const answer = (status, body) => {
+      if (finished) return;
+      finished = true;
+      if (!res.headersSent) res.status(status).json(body);
+    };
+
+    req.on('data', (chunk) => {
+      received += chunk.length;
+      if (received > archives.MAX_UPLOAD_BYTES) {
+        tooLarge = true;
+        req.destroy(new Error('归档包超过大小上限'));
+      }
+    });
+    req.on('aborted', () => {
+      output.destroy();
+      cleanup();
+      answer(tooLarge ? 413 : 400, { error: tooLarge ? '归档包超过 2GB 上限' : '上传已中断' });
+    });
+    output.on('error', (error) => {
+      cleanup();
+      answer(500, { error: `保存上传文件失败：${error.message}` });
+    });
+    output.on('close', async () => {
+      if (finished) return;
+      if (tooLarge) {
+        cleanup();
+        return answer(413, { error: '归档包超过 2GB 上限' });
+      }
+      if (received === 0) {
+        cleanup();
+        return answer(400, { error: '没有收到文件内容' });
+      }
+      try {
+        fs.renameSync(partPath, zipPath);
+        const preview = await archives.previewArchive(db, zipPath);
+        const uploadToken = archives.stashUpload({
+          zipPath,
+          preview,
+          admin: req.session.admin.name,
+          sessionId: req.sessionID,
+        });
+        answer(201, { token: uploadToken, preview: publicPreview(preview) });
+      } catch (error) {
+        cleanup();
+        answer(error.status || 400, { error: error.message || '归档包无法读取' });
+      }
+    });
+
+    req.pipe(output);
+  });
+
+  router.delete('/archives/upload/:token', requireAdmin, (req, res) => {
+    const removed = archives.discardUpload(req.params.token);
+    if (!removed) return res.status(404).json({ error: '上传已过期或已处理' });
+    res.json({ success: true });
+  });
+
+  router.post('/archives/restore', requireAdmin, jsonBody, async (req, res, next) => {
+    const body = req.body || {};
+    const token = String(body.token || '').trim();
+    const year = String(body.year || '').trim();
+    const categories = {
+      roster: Boolean(body.roster),
+      photos: Boolean(body.photos),
+      music: Boolean(body.music),
+    };
+    const setReportYear = Boolean(body.setReportYear);
+    const keep = Boolean(body.keep);
+    const overwrite = Boolean(body.overwrite);
+    let zipPath = null;
+    let uploaded = null;
+
+    try {
+      if (!categories.roster && !categories.photos && !categories.music) {
+        return res.status(400).json({ error: '至少选择名单、照片、音乐中的一类' });
+      }
+      if (token) {
+        uploaded = archives.peekUpload(token, {
+          admin: req.session.admin.name,
+          sessionId: req.sessionID,
+        });
+        if (!uploaded) return res.status(410).json({ error: '上传的归档包已过期，请重新上传' });
+        zipPath = uploaded.zipPath;
+      } else {
+        if (!archives.isValidYear(year)) return res.status(400).json({ error: '年份不合法' });
+        zipPath = archives.archiveFile(year);
+        if (!fs.existsSync(zipPath)) return res.status(404).json({ error: '归档不存在' });
+      }
+
+      if (keep && uploaded) {
+        const targetYear = uploaded.preview.scanned.manifest.year;
+        if (!overwrite && archives.listArchives().some(item => item.year === targetYear)) {
+          return res.status(409).json({ error: `${targetYear} 年的归档已存在，勾选覆盖后才会保存` });
+        }
+      }
+
+      if (token) {
+        uploaded = archives.takeUpload(token, {
+          admin: req.session.admin.name,
+          sessionId: req.sessionID,
+        });
+        if (!uploaded) return res.status(410).json({ error: '上传的归档包已过期，请重新上传' });
+      }
+
+      const result = await archives.withLock('恢复', async () => archives.restoreArchive(db, {
+        zipPath,
+        ...categories,
+        setReportYear,
+      }));
+
+      let saved = null;
+      if (keep && uploaded) {
+        saved = archives.saveArchiveFile(zipPath, uploaded.preview.scanned.manifest, { overwrite });
+      } else if (uploaded) {
+        try { fs.rmSync(zipPath, { force: true }); } catch {}
+      }
+      res.json({ success: true, ...result, saved });
+    } catch (err) {
+      if (uploaded && zipPath) {
+        try { fs.rmSync(zipPath, { force: true }); } catch {}
+      }
+      if (err.status) {
+        return res.status(err.status).json({ error: err.message, rollback: err.rollback || null });
+      }
+      next(err);
+    }
+  });
+
+  router.get('/archives/:year/download', requireAdmin, (req, res, next) => {
+    const year = String(req.params.year || '');
+    if (!archives.isValidYear(year)) return res.status(400).json({ error: '年份不合法' });
+    const target = archives.archiveFile(year);
+    if (!fs.existsSync(target)) return res.status(404).json({ error: '归档不存在' });
+    res.download(target, `annual-report-${year}.zip`, (error) => {
+      if (error && !res.headersSent) next(error);
+    });
+  });
+
+  router.get('/archives/:year/preview', requireAdmin, async (req, res, next) => {
+    try {
+      const year = String(req.params.year || '');
+      if (!archives.isValidYear(year)) return res.status(400).json({ error: '年份不合法' });
+      const target = archives.archiveFile(year);
+      if (!fs.existsSync(target)) return res.status(404).json({ error: '归档不存在' });
+      const preview = await archives.previewArchive(db, target);
+      res.json(publicPreview(preview));
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  });
+
+  router.delete('/archives/:year', requireAdmin, (req, res, next) => {
+    try {
+      if (archives.currentBusy()) return res.status(409).json({ error: `另一个${archives.currentBusy()}操作正在进行` });
+      res.json({ success: true, ...archives.deleteArchive(req.params.year) });
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
   });
 
   return router;

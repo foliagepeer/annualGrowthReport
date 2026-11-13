@@ -6,6 +6,7 @@ const themes = require('./lib/themes');
 const report = require('./lib/report');
 const loginCopy = require('./lib/login-copy');
 const createAdminRouter = require('./routes/admin');
+const archives = require('./lib/archives');
 const SQLiteSessionStore = require('./session-store');
 const { AttemptLimiter } = require('./rate-limit');
 
@@ -171,6 +172,11 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: status >= 500 ? '服务器内部错误' : err.message || '请求有误' });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+archives.ensureDirs();
+archives.cleanupStale();
+
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`年度报告后端已启动，监听端口 ${PORT}`);
 });
+// 归档包可能达到 GB 级，默认 300s 会中断慢速上传
+server.requestTimeout = 60 * 60 * 1000;

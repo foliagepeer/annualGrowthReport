@@ -42,3 +42,6 @@ logs/
 .qoder/
 .DS_Store
 Thumbs.db
+
+# 年度归档包（体积大，独立于数据库卷备份）
+archives/
