@@ -294,16 +294,13 @@
             <label>正文字体（行文案、寄语）<select id="t_fontBody" class="field"></select></label>
           </div>
           <div class="toolbar">
-            <label class="ghost file-picker">上传标题字体<input id="t_fontDisplayFile" type="file" accept=".woff2,.woff" hidden></label>
-            <span id="t_fontDisplayState" class="muted"></span>
-            <button id="t_fontDisplayDelete" class="danger" type="button" hidden>删除</button>
+            <label class="ghost file-picker">上传字体
+              <input id="t_fontUploadFile" type="file" accept=".woff2,.woff" hidden>
+            </label>
+            <span id="t_fontUploadState" class="muted"></span>
           </div>
-          <div class="toolbar">
-            <label class="ghost file-picker">上传正文字体<input id="t_fontBodyFile" type="file" accept=".woff2,.woff" hidden></label>
-            <span id="t_fontBodyState" class="muted"></span>
-            <button id="t_fontBodyDelete" class="danger" type="button" hidden>删除</button>
-          </div>
-          <p class="muted">自定义字体是全站共享的槽位：替换或删除会影响所有使用「自定义」的主题。建议上传子集化后的 woff2（全量中文字体可达数 MB）。</p>
+          <div id="fontUploadList" class="list"></div>
+          <p class="muted">上传的字体进入下方字体库，可分别选为标题或正文字体。删除某个字体只会影响正在使用它的主题（这些主题回退系统字体），删除无法撤销。字体文件越大，成员首次加载越慢，建议只保留常用字。</p>
 
           <p id="themeMessage" class="msg error" hidden></p>
           <div class="toolbar">

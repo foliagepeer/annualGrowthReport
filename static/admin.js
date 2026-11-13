@@ -2099,7 +2099,7 @@ async function loadThemes() {
 async function loadThemeFonts() {
   state.themeFonts = await request('/themes/fonts');
   renderFontOptions();
-  renderFontStates();
+  renderFontLibrary();
   // 字体就绪后重新应用一次，右侧预览不会停在系统默认字体
   if (state.themeDraft) updateThemePreview();
   if (isLayoutMode()) renderLayoutEditor();
@@ -2167,7 +2167,7 @@ function renderThemeEditor() {
   renderPageFields();
 
   renderFontOptions();
-  renderFontStates();
+  renderFontLibrary();
   renderPageOverrides();
   updateThemePreview();
 
@@ -2299,46 +2299,71 @@ function renderPageOverrides() {
   }
 }
 
+function uploadedFonts() {
+  return (state.themeFonts && state.themeFonts.uploads) || [];
+}
+
 function fontUrlFor(choice, slot) {
   if (!choice) return null;
   if (choice === 'custom') {
-    const custom = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[slot];
-    return custom ? custom.url : null;
+    const legacy = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[slot];
+    return legacy ? legacy.url : null;
   }
-  const presets = (state.themeFonts && state.themeFonts.presets) || [];
-  const preset = presets.find(item => item.id === choice);
-  return preset ? preset.url : null;
+  const preset = ((state.themeFonts && state.themeFonts.presets) || []).find(item => item.id === choice);
+  if (preset) return preset.url;
+  const upload = uploadedFonts().find(item => item.id === choice);
+  return upload ? upload.url : null;
 }
 
 function renderFontOptions() {
   // 字体列表还没加载时不要渲染：此时预设为空，会把主题里已选的字体误判成已删除
   if (!state.themeDraft || !state.themeFonts) return;
   const presets = state.themeFonts.presets || [];
+  const uploads = uploadedFonts();
   for (const slot of ['display', 'body']) {
     const select = $(slot === 'display' ? '#t_fontDisplay' : '#t_fontBody');
     const current = state.themeDraft.fonts[slot] || '';
     select.textContent = '';
     select.append(new Option('系统默认', ''));
     for (const preset of presets) select.append(new Option(preset.name, preset.id));
-    const custom = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[slot];
-    select.append(new Option(custom ? '自定义（已上传）' : '自定义（未上传）', 'custom'));
+    if (uploads.length > 0) {
+      const group = document.createElement('optgroup');
+      group.label = '上传字体';
+      for (const font of uploads) group.append(new Option(font.name, font.id));
+      select.append(group);
+    }
+    // 旧主题可能还选着 'custom'，保留一个可见选项，避免一打开就被清空
+    if (current === 'custom') select.append(new Option('自定义（旧槽位）', 'custom'));
     select.value = current;
     if (select.value !== current) {
-      // 预设文件可能被删除：回退系统默认
+      // 字体文件可能被删除：回退系统默认
       select.value = '';
       state.themeDraft.fonts[slot] = null;
     }
   }
 }
 
-function renderFontStates() {
+function renderFontLibrary() {
   if (!state.themeFonts) return;
-  for (const slot of ['display', 'body']) {
-    const custom = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[slot];
-    const stateNode = $(slot === 'display' ? '#t_fontDisplayState' : '#t_fontBodyState');
-    const deleteBtn = $(slot === 'display' ? '#t_fontDisplayDelete' : '#t_fontBodyDelete');
-    stateNode.textContent = custom ? `${custom.name} · ${Math.round(custom.size / 1024)} KB` : '尚未上传';
-    deleteBtn.hidden = !custom;
+  const uploads = uploadedFonts();
+  const stateNode = $('#t_fontUploadState');
+  if (stateNode) stateNode.textContent = uploads.length > 0 ? `已上传 ${uploads.length} 个字体` : '还没有上传字体';
+  const box = $('#fontUploadList');
+  box.textContent = '';
+  if (uploads.length === 0) {
+    box.append(el('p', 'muted', '预置字体已在上方下拉中；上传的字体也会进入这个列表。'));
+    return;
+  }
+  for (const font of uploads) {
+    const row = el('div', 'row');
+    const main = el('div', 'row-main');
+    main.append(el('strong', null, font.name));
+    const usage = font.usage ? `${font.usage} 个主题在使用` : '未被使用';
+    main.append(el('span', 'muted', `${Math.round(font.size / 1024)} KB · ${usage}`));
+    const actions = el('div', 'row-actions');
+    actions.append(button('删除', 'danger', () => deleteFontUpload(font)));
+    row.append(main, actions);
+    box.append(row);
   }
 }
 
@@ -2346,15 +2371,13 @@ for (const slot of ['display', 'body']) {
   $(slot === 'display' ? '#t_fontDisplay' : '#t_fontBody').addEventListener('change', (event) => {
     if (!state.themeDraft) return;
     state.themeDraft.fonts[slot] = event.target.value || null;
-    const custom = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[slot];
-    if (event.target.value === 'custom' && !custom) {
-      toast('这个槽位还没有上传自定义字体，保存后会回退系统字体', { type: 'warn' });
-    }
     updateThemePreview();
   });
 }
 
-async function uploadSlotFont(slot, file) {
+$('#t_fontUploadFile').addEventListener('change', async (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = '';
   if (!file) return;
   const extensions = (state.meta && state.meta.extensions && state.meta.extensions.font) || ['.woff2', '.woff'];
   const ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
@@ -2362,61 +2385,49 @@ async function uploadSlotFont(slot, file) {
   const limit = (state.meta && state.meta.limits && state.meta.limits.font) || 8 * 1024 * 1024;
   if (file.size > limit) return alertDialog(`字体不能超过 ${Math.round(limit / 1024 / 1024)}MB，建议先做子集化`);
 
-  const name = `${slot}${ext}`;
+  const base = file.name.replace(/\.[^.]+$/, '').slice(0, 40) || '上传字体';
+  const input = await promptDialog('给这个字体起个名字（会显示在标题/正文字体下拉里）', base);
+  if (input === null) return;
+  const name = String(input).trim().slice(0, 40);
+  if (!name) return alertDialog('字体名称不能为空');
+
   try {
-    try {
-      await upload({ kind: 'font', dir: '', name, file });
-    } catch (error) {
-      if (error.status !== 409) throw error;
-      if (!await confirmDialog('该槽位已有字体，要覆盖吗？', { title: '覆盖字体', confirmText: '覆盖' })) return;
-      await upload({ kind: 'font', dir: '', name, file, overwrite: true });
-    }
+    const result = await request(`/media/fonts?name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      raw: true,
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: await file.arrayBuffer(),
+    });
     await loadThemeFonts();
-    if (state.themeDraft) state.themeDraft.fonts[slot] = 'custom';
-    renderFontOptions();
-    renderFontStates();
-    updateThemePreview();
-    toast('字体已上传并选中，保存主题后生效');
+    toast(`字体「${result.font.name}」已加入字体列表，可在上方下拉选择`);
   } catch (error) {
     if (error.status === 401) return showLogin('登录已过期，请重新登录');
     showError(error);
   }
-}
-
-$('#t_fontDisplayFile').addEventListener('change', (event) => {
-  const file = event.target.files && event.target.files[0];
-  event.target.value = '';
-  uploadSlotFont('display', file);
 });
 
-$('#t_fontBodyFile').addEventListener('change', (event) => {
-  const file = event.target.files && event.target.files[0];
-  event.target.value = '';
-  uploadSlotFont('body', file);
-});
-
-async function deleteSlotFont(slot) {
-  const custom = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[slot];
-  if (!custom) return;
-  const label = slot === 'display' ? '标题' : '正文';
-  if (!await confirmDialog(`确定删除自定义${label}字体「${custom.name}」吗？所有使用「自定义」的主题都会回退到系统字体；媒体文件删除无法撤销。`, { title: '删除字体', confirmText: '删除', danger: true })) return;
+async function deleteFontUpload(font) {
+  const usage = font.usage
+    ? `当前有 ${font.usage} 个主题在使用它，删除后这些主题会回退到系统字体；`
+    : '当前没有主题在使用它；';
+  if (!await confirmDialog(`确定删除字体「${font.name}」吗？${usage}文件删除无法撤销。`, {
+    title: '删除字体', confirmText: '删除', danger: true,
+  })) return;
   try {
-    await request(`/media?kind=font&dir=&name=${encodeURIComponent(custom.name)}`, { method: 'DELETE' });
+    await request(`/media/fonts/${encodeURIComponent(font.id)}`, { method: 'DELETE' });
     await loadThemeFonts();
-    if (state.themeDraft && state.themeDraft.fonts[slot] === 'custom') {
-      state.themeDraft.fonts[slot] = null;
+    if (state.themeDraft && (state.themeDraft.fonts.display === font.id || state.themeDraft.fonts.body === font.id)) {
+      if (state.themeDraft.fonts.display === font.id) state.themeDraft.fonts.display = null;
+      if (state.themeDraft.fonts.body === font.id) state.themeDraft.fonts.body = null;
       renderFontOptions();
+      updateThemePreview();
     }
-    renderFontStates();
-    updateThemePreview();
+    toast('字体已删除');
   } catch (error) {
     if (error.status === 401) return showLogin('登录已过期，请重新登录');
     showError(error);
   }
 }
-
-$('#t_fontDisplayDelete').addEventListener('click', () => deleteSlotFont('display'));
-$('#t_fontBodyDelete').addEventListener('click', () => deleteSlotFont('body'));
 
 function hexToRgb(hex) {
   const matched = /^#?([0-9a-f]{6})$/i.exec(hex || '');
@@ -2885,18 +2896,24 @@ function editorFontUrl(ref) {
   const theme = state.themeDraft;
   if (!theme || !ref) return null;
   const presets = (state.themeFonts && state.themeFonts.presets) || [];
+  const uploads = uploadedFonts();
+  const resolve = (id) => {
+    if (!id) return null;
+    const preset = presets.find(item => item.id === id);
+    if (preset) return preset.url;
+    const upload = uploads.find(item => item.id === id);
+    return upload ? upload.url : null;
+  };
   if (ref === 'display' || ref === 'body') {
     const choice = theme.fonts[ref];
     if (!choice) return null;
     if (choice === 'custom') {
-      const custom = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[ref];
-      return custom ? custom.url : null;
+      const legacy = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[ref];
+      return legacy ? legacy.url : null;
     }
-    const preset = presets.find(item => item.id === choice);
-    return preset ? preset.url : null;
+    return resolve(choice);
   }
-  const preset = presets.find(item => item.id === ref);
-  return preset ? preset.url : null;
+  return resolve(ref);
 }
 
 function ensureEditorFont(url, family) {
@@ -3204,6 +3221,13 @@ function renderLayoutProperties() {
     fontSelect.append(new Option('主题正文字体', 'body'));
     for (const preset of (state.themeFonts && state.themeFonts.presets) || []) {
       fontSelect.append(new Option(preset.name, preset.id));
+    }
+    const uploads = uploadedFonts();
+    if (uploads.length > 0) {
+      const group = document.createElement('optgroup');
+      group.label = '上传字体';
+      for (const font of uploads) group.append(new Option(font.name, font.id));
+      fontSelect.append(group);
     }
     fontSelect.value = element.font || '';
     $('#layoutSize').value = String(element.size);

@@ -105,10 +105,11 @@ docker compose exec -T app node scripts/set-admin.js admin --delete
 | `GET /students/:id/report?themeId=` | 预览报告与资源解析（可覆盖主题） |
 | `GET/POST/DELETE /students/:id/photos?pageKey=&name=` | 成员附加图片：按页面列出 / 上传（raw 字节，5MB，可 `overwrite=1`）/ 删除；文件存 `static/images/extras/<学号>/<pageKey>/`，通过排版 `extra` 元素嵌入页面 |
 | `GET /themes`、`POST /themes`、`PUT /themes/:id`、`DELETE /themes/:id` | 主题列表（含使用人数）/ 新建 / 更新 / 删除（默认或被引用 → 400/409） |
-| `POST /themes/:id/default`、`POST /themes/:id/duplicate`、`GET /themes/fonts` | 设默认 / 复制 / 字体预设与自定义槽位（**必须先于 `/themes/:id` 注册**） |
+| `POST /themes/:id/default`、`POST /themes/:id/duplicate`、`GET /themes/fonts` | 设默认 / 复制 / 预置字体与**上传字体库**（**必须先于 `/themes/:id` 注册**） |
 | `POST /import/text/preview`、`/import/text`、`/import/xlsx/preview`、`/import/xlsx` | 文本 / Excel 预览与执行（Excel 用原始字节 + `X-File-Name`，不用 multipart） |
 | `GET /export/xlsx`、`GET /export/template.xlsx`、`POST /export/xlsx` | 导出全部 / 模板 / 导出勾选（`{studentIds}`） |
-| `GET /media`、`POST /media/upload`、`DELETE /media` | 媒体全景、上传（`kind=image|music|font|decor`）、删除；音乐上限 10MB，字体仅两槽位且校验 woff magic、8MB；装饰图存 `static/images/decor/` |
+| `GET /media`、`POST /media/upload`、`DELETE /media` | 媒体全景、上传（`kind=image|music|font|decor`）、删除；音乐上限 10MB，装饰图存 `static/images/decor/`；`kind=font` 仅保留旧槽位兼容 |
+| `POST /media/fonts`、`DELETE /media/fonts/:id` | 上传字体库条目（raw woff/woff2，8MB，名称走 `?name=`）/ 删除；每个字体独立 id，主题可分别选用 |
 | `POST /media/purge` | `{photos,music,dryRun}`：统计或清空成员照片（成员图目录 + extras）与成员音乐；共享图、decor、字体不动 |
 | `GET /archives`、`POST /archives`、`DELETE /archives/:year` | 年度快照列表 / 生成 / 删除（zip + sidecar） |
 | `POST /archives/upload`、`DELETE /archives/upload/:token` | 流式上传归档包 → `{token, preview}`；丢弃临时包 |
@@ -151,7 +152,7 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 
 **常用命令**：部署/重建 `docker compose up -d --build`；看日志 `docker compose logs -f app`；改 nginx 后 `docker compose exec nginx nginx -s reload`；改前端静态文件直接刷新，无需重启；停止 `docker compose down`；备份数据库 `docker run --rm -v sqlite_data:/data -v $(pwd):/backup alpine tar cvf /backup/backup.tar /data`。归档包不在数据库卷内，需单独备份/轮转 `./archives`（或把 `ARCHIVE_HOST_DIR` 指到另一块盘）。
 
-**目录**：`server.js`（入口）/ `db.js`（建库迁移）/ `session-store.js` / `rate-limit.js` / `lib/student-records.js`（成员规则）/ `lib/media.js`（资源解析与写入）/ `lib/themes.js`（主题）/ `lib/undo-buffer.js` / `routes/admin.js` / `scripts/*`；`static/` 含页面、`vendor/`、`images/`（不入库）、`music/`（不入库）、`fonts/presets/`（入库）与 `fonts/custom/`（不入库）。
+**目录**：`server.js`（入口）/ `db.js`（建库迁移）/ `session-store.js` / `rate-limit.js` / `lib/student-records.js`（成员规则）/ `lib/media.js`（资源解析与写入）/ `lib/themes.js`（主题）/ `lib/undo-buffer.js` / `routes/admin.js` / `scripts/*`；`static/` 含页面、`vendor/`、`images/`（不入库）、`music/`（不入库）、`fonts/presets/`（入库）与 `fonts/custom/`（不入库，随宿主机 `static/` 备份）。
 
 **当前环境**：Debian 13，内网 `10.129.246.40`，站点 HTTP 80；frpc 隧道不通，暂无公网入口；HTTPS 未启用。
 
@@ -162,7 +163,7 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 - **主题不进** `records.HEADERS`/导出列；批量赋主题走 `batch.set.theme`（空串=默认主题），可撤销；主题配置修改即时生效且不在撤销快照内。
 - **路由顺序**：`GET /themes/fonts` 必须在 `/themes/:id` 之前；管理路由挂在全局 `express.json()` 之前（自带 2MB 上限）。
 - **上传安全**：扩展名白名单 + 文件名白名单 + `path.resolve` 前缀断言 + 临时文件 rename；同名默认 409，`overwrite=1` 才覆盖；同基名高优先级格式会遮蔽，响应 `shadows` 指出；资源 URL 一律带 `?v=<mtime>-<size>`。
-- **字体**：预设 5 款 OFL 子集字（ASCII + 常用标点 + GB2312 一级字 3755 + 界面文案，约 4200 字；生僻字逐字回退系统字体）入库，重新生成用 `scripts/subset-font-presets.py`（需 fonttools + brotli）；自定义 `fonts/custom/display|body.(woff2|woff)` 不入库，单文件 8MB，一槽一文件。
+- **字体**：预设 5 款 OFL 子集字（ASCII + 常用标点 + GB2312 一级字 3755 + 界面文案，约 4200 字；生僻字逐字回退系统字体）入库，重新生成用 `scripts/subset-font-presets.py`（需 fonttools + brotli）；管理员上传的字体进入**字体库**（`static/fonts/custom/<uuid>.(woff2|woff)` + `index.json` 元数据，单文件 8MB），每个是独立条目，可分别选为标题/正文字体，删除只影响使用它的主题；`fonts/custom/` **不入库**（运行素材，随宿主机 `static/` 备份）。旧版 `'custom'` 两槽位仅保留读取兼容。
 - **会话**：管理员与成员使用**独立 cookie**（`report.admin.sid` / `report.sid`），登录/退出互不影响；`/api/admin/logout` 只销毁管理会话，`/api/logout` 只销毁成员会话。预览窗口不得调用 `/api/logout`、不得写音乐偏好；非管理员带预览参数回落登录页。
 - **撤销**：`lib/undo-buffer.js` 内存快照，15 分钟 / 20 条上限，重启清空；媒体文件删除不可撤销。
 - **页面注册表**：`pages` 表是唯一页面来源（`lib/pages.js`）；`media.PAGE_KEYS` 已移除，`/meta`/`/media`/`/api/report`/主题排版页下拉都从注册表取；页面 key 就是背景槽位名，旧 key 通过 `media.BACKGROUND_ALIASES` 回退；主题 `pages`/`layout` 的 key 只校验形状，不因旧 key 报 400。
@@ -175,7 +176,7 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 ## 9. 验证清单
 
 - 旧库启动：补列、`themes`/`pages`/`settings` seed、登录/报告/导入导出/媒体无回归；旧主题不报 400。
-- 接口：`POST /api/login` 需姓名+学号，旧密码字段返回 400，`/api/password` 为 404；`/api/report` 含 pages/新字段/backgrounds/music/theme；页面注册表 CRUD/排序/启停/年度；主题 CRUD、默认/复制、删除保护；`/themes/fonts` 不被 `:id` 吞；字体上传 magic/8MB/覆盖清理；音乐 10MB；请求体 >12MB 413。
+- 接口：`POST /api/login` 需姓名+学号，旧密码字段返回 400，`/api/password` 为 404；`/api/report` 含 pages/新字段/backgrounds/music/theme；页面注册表 CRUD/排序/启停/年度；主题 CRUD、默认/复制、删除保护；`/themes/fonts` 不被 `:id` 吞；字体库上传（命名、woff magic、8MB、删除后使用它的主题回退）；音乐 10MB；请求体 >12MB 413。
 - 数据链路：赋主题 → 编辑 → 文本导入（19 列/旧 11 列）→ Excel 导入 → 删除后撤销，主题与新字段不丢；导出再导入不丢；缺列继承生效。
 - 成员端：姓名+学号登录/退出；8 页动态渲染/翻页/动画/数字滚动；照片背景与暗层；音乐开关；页面注册表顺序/启停；附加图片按页插入且顺序正确；最后一个 slide 的按钮；主题颜色/字体/排版；`prefers-reduced-motion` 降级；预览模式无退出。
 - 页面排版：8 类默认模板、拖动/缩放/属性/加文字/加图片/恢复默认/保存；新占位符；结尾按钮保留。
@@ -189,7 +190,7 @@ docker compose exec app node scripts/import-excel.js import/x.xlsx  # 导入
 主题 config 增加 `layout: { [pageKey]: { elements: [...] } }`，元素坐标与字号按 **390×844 设计稿像素**，渲染时按视口等比缩放、背景由页面 cover 铺满。
 
 - **text**：`{ id, type:'text', x, y, w, text, unit, font, size, weight, color, align, lineHeight, opacity, z }`
-  - `font`：`null`（系统）/ `'display'` / `'body'`（跟随主题字体）/ 预设 id
+  - `font`：`null`（系统）/ `'display'` / `'body'`（跟随主题字体）/ 预置字体 id / 上传字体 id
   - 占位符：`{{name}}`、`{{department}}`、`{{joinDays}}`、`{{volunteerHours}}`、`{{activityCount}}`、`{{activities}}`、`{{activity1Name}}`、`{{activity1Date}}`、`{{activity1Work}}`、`{{activity2Name}}`、`{{activity2Date}}`、`{{activity2Work}}`、`{{partnerCount}}`、`{{partnerLine}}`、`{{partnerCaption}}`、`{{keyword}}`、`{{keywordReason}}`、`{{reportYear}}`、`{{message}}`；文字只有 `{{activities}}` 时按默认版式渲染成活动胶囊
 - **image**：`{ id, type:'image', x, y, w, h, src, fit, radius, opacity, z }`，`src` 只允许 `/images/decor/<安全文件名>`
 - **extra**：`{ id, type:'extra', x, y, w, h, slot, fit, radius, opacity, z }`，`slot` 1–12，取该成员在该页附加图片的第 N 张；成员没有这张时不渲染。编辑器「补齐图片槽位」按类型补默认数量（回忆 2，放在居中工作下方；伙伴 1，放在伙伴文案下方），未引用的照片底部兜底展示

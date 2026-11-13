@@ -281,8 +281,16 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
   // 必须放在 /themes/:id 之前，否则 fonts 会被当成一个主题 id
   router.get('/themes/fonts', requireAdmin, (req, res) => {
     const custom = media.listEntries('font', null);
+    const themeList = themes.listThemes(db);
+    const usageOf = (id) => themeList.filter(theme => {
+      const fonts = theme.config.fonts || {};
+      if (fonts.display === id || fonts.body === id) return true;
+      return Object.values(theme.config.layout || {})
+        .some(page => (page.elements || []).some(element => element.type === 'text' && element.font === id));
+    }).length;
     res.json({
       presets: media.listFontPresets(),
+      uploads: media.listFontUploads().map(item => ({ ...item, usage: usageOf(item.id) })),
       custom: {
         display: custom.find(entry => entry.key === 'display') || null,
         body: custom.find(entry => entry.key === 'body') || null,
@@ -926,6 +934,31 @@ module.exports = function createAdminRouter({ db, cookieName = 'report.admin.sid
     } catch (err) {
       next(err);
     }
+  });
+
+  // 字体库：每个上传字体是独立条目，不再覆盖 display/body 两个全局槽位
+  router.post('/media/fonts', requireAdmin, rawBody, (req, res, next) => {
+    try {
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: '没有收到字体文件' });
+      }
+      if (req.body.length > KIND_LIMITS.font) {
+        return res.status(413).json({ error: `字体不能超过 ${Math.round(KIND_LIMITS.font / 1024 / 1024)}MB` });
+      }
+      if (!media.isWoffBuffer(req.body)) return res.status(400).json({ error: '不是有效的 woff/woff2 字体文件' });
+      const rawName = String(req.query.name || '').trim();
+      if (/[\u0000-\u001f]/.test(rawName)) return res.status(400).json({ error: '字体名称不合法' });
+      const name = rawName.slice(0, 40) || '上传字体';
+      const font = media.saveFontUpload({ id: randomUUID(), name, buffer: req.body });
+      res.status(201).json({ success: true, font });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/media/fonts/:id', requireAdmin, (req, res) => {
+    if (!media.deleteFontUpload(req.params.id)) return res.status(404).json({ error: '字体不存在' });
+    res.json({ success: true });
   });
 
   router.post('/media/purge', requireAdmin, jsonBody, async (req, res, next) => {
