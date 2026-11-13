@@ -378,6 +378,16 @@ body {
   color: var(--text-dim);
 }
 
+/* 排版里的 {{activities}} 沿用默认版式的胶囊排列 */
+.layout-canvas .layout-activity-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.layout-canvas .layout-activity-list .activity-tag { color: inherit; }
+
 .swipe-hint {
   margin: 42px 0 0;
   font-size: 13px;

@@ -581,8 +581,25 @@ function renderLayoutElement(element, theme, pageKey) {
 
   const numeric = String(element.text || '').trim()
     .match(/^\{\{\s*(joinDays|volunteerHours|activityCount|partnerCount)\s*\}\}$/);
+  const activityOnly = /^\{\{\s*activities\s*\}\}$/.test(String(element.text || '').trim());
   node.dataset.animate = numeric ? 'zoomIn' : 'fadeInUp';
-  if (numeric) {
+  if (activityOnly) {
+    // 活动记录保持默认版式的胶囊样式，而不是拼成一整行文字
+    node.classList.add('layout-activity-list');
+    const names = reportData && Array.isArray(reportData.activities)
+      ? reportData.activities.filter(Boolean)
+      : [];
+    if (names.length === 0) {
+      node.textContent = '（活动记录待补充）';
+    } else {
+      for (const name of names) {
+        const tag = document.createElement('span');
+        tag.className = 'activity-tag';
+        tag.textContent = name;
+        node.append(tag);
+      }
+    }
+  } else if (numeric) {
     const value = document.createElement('span');
     value.dataset.count = numeric[1];
     value.textContent = '0';
@@ -592,7 +609,7 @@ function renderLayoutElement(element, theme, pageKey) {
     node.textContent = substituteLayoutText(element.text, reportData);
   }
 
-  if (element.unit) {
+  if (element.unit && !activityOnly) {
     const unit = document.createElement('small');
     unit.textContent = element.unit;
     unit.style.fontSize = '0.24em';

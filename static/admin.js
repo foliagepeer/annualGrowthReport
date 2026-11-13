@@ -1756,6 +1756,8 @@ async function loadThemeFonts() {
   state.themeFonts = await request('/themes/fonts');
   renderFontOptions();
   renderFontStates();
+  // 字体就绪后重新应用一次，右侧预览不会停在系统默认字体
+  if (state.themeDraft) updateThemePreview();
   if (isLayoutMode()) renderLayoutEditor();
 }
 
@@ -1965,8 +1967,9 @@ function fontUrlFor(choice, slot) {
 }
 
 function renderFontOptions() {
-  if (!state.themeDraft) return;
-  const presets = (state.themeFonts && state.themeFonts.presets) || [];
+  // 字体列表还没加载时不要渲染：此时预设为空，会把主题里已选的字体误判成已删除
+  if (!state.themeDraft || !state.themeFonts) return;
+  const presets = state.themeFonts.presets || [];
   for (const slot of ['display', 'body']) {
     const select = $(slot === 'display' ? '#t_fontDisplay' : '#t_fontBody');
     const current = state.themeDraft.fonts[slot] || '';
@@ -1985,6 +1988,7 @@ function renderFontOptions() {
 }
 
 function renderFontStates() {
+  if (!state.themeFonts) return;
   for (const slot of ['display', 'body']) {
     const custom = state.themeFonts && state.themeFonts.custom && state.themeFonts.custom[slot];
     const stateNode = $(slot === 'display' ? '#t_fontDisplayState' : '#t_fontBodyState');
@@ -2413,10 +2417,10 @@ function defaultLayoutTemplate(page) {
   }
   if (type === 'activities') {
     return [
-      line('t-title', 250, '活动足迹'),
-      line('t-line', 295, '这一年，你参与了'),
-      number('t-num', 335, '{{activityCount}}', '次活动'),
-      line('t-list', 450, '{{activities}}', { size: 13, lineHeight: 1.7 }),
+      line('t-title', 312, '活动足迹'),
+      line('t-line', 357, '这一年，你参与了'),
+      number('t-num', 397, '{{activityCount}}', '次活动'),
+      line('t-list', 512, '{{activities}}', { size: 13, lineHeight: 1.7 }),
       line('t-sub', 575, '每一次都在场'),
     ];
   }
@@ -2655,7 +2659,23 @@ function layoutEditorNode(element, sample) {
     node.style.textAlign = element.align;
     node.style.lineHeight = String(element.lineHeight);
     node.style.fontFamily = adminFontFamily(element.font);
-    node.textContent = layoutSubstitute(element.text, sample);
+    const activityOnly = /^\{\{\s*activities\s*\}\}$/.test(String(element.text || '').trim());
+    if (activityOnly) {
+      node.classList.add('layout-activity-list');
+      const names = sample && Array.isArray(sample.activities) ? sample.activities.filter(Boolean) : [];
+      if (names.length === 0) {
+        node.textContent = '（活动记录待补充）';
+      } else {
+        for (const name of names) {
+          const tag = document.createElement('span');
+          tag.className = 'activity-tag';
+          tag.textContent = name;
+          node.append(tag);
+        }
+      }
+    } else {
+      node.textContent = layoutSubstitute(element.text, sample);
+    }
     if (element.unit) {
       const unit = document.createElement('small');
       unit.textContent = element.unit;
